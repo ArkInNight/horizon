@@ -408,17 +408,18 @@ fn private_build_tools_still_clear_and_report_freed_bytes() {
 }
 
 #[test]
-fn explicit_version_removal_refuses_before_changing_install_metadata() {
+fn explicit_version_removal_of_a_legacy_version_succeeds() {
     let home = Home::new();
     let marker = home.file("launcher/versions/spare/.installed", b"installed");
     let game = home.file("launcher/versions/spare/game", b"game binary");
     let output = home.run(&["remove", "spare"]);
-    assert!(!output.status.success(), "{output:?}");
+    // A version whose client predates runtime leases takes none, so nothing can be using it:
+    // an explicit removal is allowed and drops the whole version folder.
+    assert!(output.status.success(), "{output:?}");
     assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("An older game build can use this cache without runtime leases."),
+        String::from_utf8_lossy(&output.stdout).contains("Removed spare."),
         "{output:?}"
     );
-    assert_eq!(fs::read(marker).unwrap(), b"installed");
-    assert_eq!(fs::read(game).unwrap(), b"game binary");
+    assert!(!marker.exists(), "{marker:?}");
+    assert!(!game.exists(), "{game:?}");
 }
