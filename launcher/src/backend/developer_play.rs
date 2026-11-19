@@ -20,7 +20,25 @@ pub fn client_as(tag: &str, who: Option<&str>) -> Result<Command, String> {
                     None => hint(refused.to_string()),
                 }
             }),
-            Some(who) => account::session_for_game_as(&game_home(), who).map_err(hint),
+            Some(who) => {
+                let accounts = account::Accounts::load();
+                let offline = accounts
+                    .offline
+                    .iter()
+                    .find(|n| n.eq_ignore_ascii_case(who))
+                    .cloned();
+                match (accounts.find(who).cloned(), offline) {
+                    (Some(a), _) => {
+                        account::session_for_game_as(&game_home(), &a.uuid).map_err(hint)
+                    }
+                    (None, Some(n)) => account::session_for_game_as_player(
+                        &game_home(),
+                        &account::Player::Offline(n),
+                    )
+                    .map_err(hint),
+                    (None, None) => Err(hint(format!("No signed-in account {who}."))),
+                }
+            }
         }?)
     };
     if let Err(e) = need_prepared(tag) {

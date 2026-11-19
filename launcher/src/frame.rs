@@ -1198,7 +1198,7 @@ impl Launcher {
         }
         let t = self.theme;
         let soft = self.look.accent_soft;
-        let now = self.accounts.selected().map(|a| a.uuid.clone());
+        let now = self.accounts.player();
         let mut menu = ui::popover(250.)
             .id("account-menu")
             .occlude()
@@ -1208,7 +1208,11 @@ impl Launcher {
                 cx.notify();
             }));
         for (i, (who, name, how)) in self.players().into_iter().enumerate() {
-            let chosen = Some(&who) == now.as_ref();
+            let chosen = who == now;
+            let uuid = match &who {
+                horizon_launcher::account::Player::Microsoft(uuid) => Some(uuid.as_str()),
+                _ => None,
+            };
             let id = SharedString::from(format!("account-pick-{i}"));
             menu = menu.child(keyboard(
                 track_hover(
@@ -1229,12 +1233,7 @@ impl Launcher {
                                 .size(px(30.))
                                 .rounded(px(8.))
                                 .overflow_hidden()
-                                .child(self.profile_heads.draw(
-                                    Some(who.as_str()),
-                                    30.,
-                                    self.scale,
-                                    &t,
-                                )),
+                                .child(self.profile_heads.draw(uuid, 30., self.scale, &t)),
                         )
                         .child(
                             div()
@@ -1254,7 +1253,7 @@ impl Launcher {
                             d.child(ui::icon("tick-02", 16., ui::color(soft)).relative())
                         })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.play_as(&who);
+                            this.play_as_player(who.clone());
                             cx.notify();
                         })),
                     id,

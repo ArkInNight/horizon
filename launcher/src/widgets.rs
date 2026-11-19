@@ -535,6 +535,9 @@ pub(crate) fn play_press(prepared: bool, owner: Option<bool>, busy: bool) -> Pla
         _ if busy => PlayPress::Nothing,
         (true, _) => PlayPress::Play,
         (false, Some(true)) => PlayPress::PrepareThenPlay,
+        // Offline play needs no account that owns the game: prepare from the player's own
+        // Minecraft files (or the jar they chose), then play.
+        (false, _) if horizon_launcher::account::GATE_OPEN => PlayPress::PrepareThenPlay,
         (false, _) => PlayPress::Nothing,
     }
 }

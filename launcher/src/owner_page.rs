@@ -8,7 +8,10 @@ impl Launcher {
     /// Whether the screen covers the window: no owner, and either Play was refused or the player
     /// hasn't read it yet. The data question comes first.
     pub(crate) fn asking_owner(&self) -> bool {
-        (!horizon_launcher::developer_offline::selected() || sign_in_preview())
+        // Play works offline in this build: the sign-in sheet never covers the window (except in
+        // the screenshot preview) just because no account here owns the game.
+        (sign_in_preview() || !horizon_launcher::account::GATE_OPEN)
+            && (!horizon_launcher::developer_offline::selected() || sign_in_preview())
             && (self.owner == Some(false) || sign_in_preview())
             && (self.owner_screen_open || !self.settings.owner_notice_seen || sign_in_preview())
             && !self.asking_consent()

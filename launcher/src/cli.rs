@@ -140,8 +140,32 @@ enum AccountCmd {
         /// Its name or UUID
         who: String,
     },
-    /// Play as this account
+    /// Play as this account, or as one of your offline names
     Select { who: String },
+    /// Play offline: as NAME (kept to switch back to; 3 to 16 letters, digits or _), or as the
+    /// name the game made up when NAME is left out
+    Offline { name: Option<String> },
+    /// Forget one of your offline names; its skin and cape go with it
+    ForgetOffline { name: String },
+    /// Show or set an offline name's skin and cape: a 64x64 (or 64x32) skin PNG, a 64x32 cape
+    /// PNG, and the arm model. Kept by the launcher and given to the game when that name plays
+    Skin {
+        name: String,
+        /// The skin's PNG
+        file: Option<PathBuf>,
+        /// classic or slim arms
+        #[arg(long)]
+        model: Option<String>,
+        /// The cape's PNG
+        #[arg(long)]
+        cape: Option<PathBuf>,
+        /// Back to the default skin
+        #[arg(long)]
+        no_skin: bool,
+        /// Take the cape off
+        #[arg(long)]
+        no_cape: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -742,7 +766,7 @@ enum Cmd {
         #[arg(long)]
         version: Option<String>,
     },
-    /// Start the client (needs a signed-in Microsoft account that owns Minecraft: Java Edition)
+    /// Start the client (offline without a signed-in Microsoft account)
     Play {
         /// Allow missing original Java asset/data jars to be downloaded from Modrinth
         #[arg(long)]
@@ -880,7 +904,8 @@ enum Cmd {
     },
     /// Show the launcher's settings, or set one (the Settings page): selected-version TAG,
     /// game-architecture auto|x64|arm64,
-    /// minecraft-dir PATH, server-dir PATH ("default" resets a folder), install-new-versions
+    /// minecraft-dir PATH, minecraft-jar PATH (a client jar to prepare from, instead of a folder),
+    /// server-dir PATH ("default" resets a folder), install-new-versions
     /// on|off, prune-old-versions on|off (delete old versions after an install, keeping the
     /// selected one, the ones instances use and the newest few), keep-versions N (how many of the
     /// newest to keep; "default" is 2), opening-animation on|off, proxy http://host:port|socks5://host:port
@@ -1045,9 +1070,10 @@ pub fn command() -> clap::Command {
 pub const AI_COMMANDS: [&str; 2] = ["mcp", "agent-config"];
 
 /// The keys `settings` sets.
-const SETTING_KEYS: [&str; 14] = [
+const SETTING_KEYS: [&str; 15] = [
     "selected-version",
     "minecraft-dir",
+    "minecraft-jar",
     "server-dir",
     "install-new-versions",
     "prune-old-versions",
@@ -1075,6 +1101,7 @@ fn set_setting(s: &mut backend::Settings, key: &str, value: &str) -> Result<(), 
     match key {
         "selected-version" => s.selected = Some(backend::resolve_version(Some(value))?),
         "minecraft-dir" => s.minecraft_dir = folder(value),
+        "minecraft-jar" => s.minecraft_jar = folder(value),
         "server-dir" => s.server_dir = folder(value),
         "install-new-versions" => s.install_new_versions = Some(on_off(value)?),
         "prune-old-versions" => s.prune_old_versions = Some(on_off(value)?),
@@ -1537,15 +1564,28 @@ fn execute(command: Cmd, as_json: bool) -> Result<i32, String> {
             }
             // Who plays this launch only.
             let who = match account {
-                Some(who) => Some(
-                    Accounts::load()
-                        .find(&who)
-                        .ok_or_else(|| {
-                            format!("No signed-in account {who}. See `horizon-launcher account`.")
-                        })?
-                        .uuid
-                        .clone(),
-                ),
+                Some(who) => {
+                    let accounts = Accounts::load();
+                    if accounts
+                        .offline
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case(&who))
+                    {
+                        Some(who)
+                    } else {
+                        Some(
+                            accounts
+                                .find(&who)
+                                .ok_or_else(|| {
+                                    format!(
+                                        "No signed-in account or offline name {who}. See `horizon-launcher account`."
+                                    )
+                                })?
+                                .uuid
+                                .clone(),
+                        )
+                    }
+                }
                 None => None,
             };
             let mut cmd = backend::client_as(
@@ -1968,13 +2008,17 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                         "selected": accounts.selected.as_ref() == Some(&a.uuid),
                         "authentication": account::session::status(account::store(), &a.uuid),
                     })).collect::<Vec<_>>(),
+                    "offline": accounts.offline.iter().map(|n| serde_json::json!({
+                        "name": n,
+                        "selected": accounts.player() == account::Player::Offline(n.clone()),
+                    })).collect::<Vec<_>>(),
                     "sign_in_configured": account::client_id().is_some(),
                     "owner": accounts.has_owner(account::store()),
                 }));
-            } else if accounts.accounts.is_empty() {
+            } else if accounts.accounts.is_empty() && accounts.offline.is_empty() {
                 println!(
-                    "No Microsoft account signed in. Play needs one that owns Minecraft: Java \
-                     Edition: horizon-launcher account sign-in"
+                    "No Microsoft account signed in: Play starts offline. Online servers need \
+                     one: horizon-launcher account sign-in"
                 );
             } else {
                 for a in &accounts.accounts {
@@ -1991,10 +2035,18 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                     };
                     println!("{mark} {}  {}  {}{why}", a.name, a.uuid, status.label());
                 }
+                for n in &accounts.offline {
+                    let on = accounts.player() == account::Player::Offline(n.clone());
+                    println!("{} {n}  offline", if on { "*" } else { " " });
+                }
+                if accounts.player() == account::Player::GameName {
+                    println!(
+                        "Playing offline as the game's own name (`account select NAME` to switch)."
+                    );
+                }
                 if !accounts.has_owner(account::store()) {
                     println!(
-                        "{} {}",
-                        account::NoOwner::default(),
+                        "Playing offline. Online servers need a Microsoft account: {}",
                         tr(backend::SIGN_IN_HINT)
                     );
                 }
@@ -2074,10 +2126,92 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
             println!("Signed out {}.", a.name);
         }
         AccountCmd::Select { who } => {
-            let a = find(&accounts, &who)?;
-            accounts.play_as(&a.uuid)?;
+            let offline = accounts
+                .offline
+                .iter()
+                .find(|n| n.eq_ignore_ascii_case(&who))
+                .cloned();
+            let (player, name) = match (accounts.find(&who).cloned(), offline) {
+                (Some(a), _) => (account::Player::Microsoft(a.uuid), a.name),
+                (None, Some(n)) => (
+                    account::Player::Offline(n.clone()),
+                    format!("{n} (offline)"),
+                ),
+                (None, None) => return Err(find(&accounts, &who).unwrap_err()),
+            };
+            accounts.play_as_player(account::store(), player)?;
             accounts.save()?;
-            println!("The game plays as {}.", a.name);
+            println!("The game plays as {name}.");
+        }
+        AccountCmd::Offline { name } => {
+            let player = match name {
+                Some(n) => account::Player::Offline(n),
+                None => account::Player::GameName,
+            };
+            accounts.play_as_player(account::store(), player)?;
+            accounts.save()?;
+            match accounts.name_arg() {
+                Some(n) => println!("The game plays offline as {n}."),
+                None => println!("The game plays offline, as the name it made up."),
+            }
+        }
+        AccountCmd::ForgetOffline { name } => {
+            accounts.remove_offline(&name, &horizon_launcher::skins::dir())?;
+            accounts.save()?;
+            println!("Forgot the offline name {name}.");
+        }
+        AccountCmd::Skin {
+            name,
+            file,
+            model,
+            cape,
+            no_skin,
+            no_cape,
+        } => {
+            use horizon_launcher::skins::{self, Model};
+            let name = accounts
+                .offline
+                .iter()
+                .find(|n| n.eq_ignore_ascii_case(&name))
+                .cloned()
+                .ok_or_else(|| {
+                    format!("No offline name {name}: add it with `account offline {name}`.")
+                })?;
+            let model = match model.as_deref() {
+                None => None,
+                Some("classic") => Some(Model::Classic),
+                Some("slim") => Some(Model::Slim),
+                Some(m) => return Err(format!("{m}: say classic or slim")),
+            };
+            let mut look = accounts.look(&name);
+            if let Some(file) = &file {
+                skins::keep(&skins::dir(), &name, file, false)?;
+                look.skin = true;
+            }
+            if let Some(file) = &cape {
+                skins::keep(&skins::dir(), &name, file, true)?;
+                look.cape = true;
+            }
+            if let Some(m) = model {
+                look.model = m;
+            }
+            look.skin &= !no_skin;
+            look.cape &= !no_cape;
+            accounts.set_look(&name, look.clone());
+            accounts.save()?;
+            if as_json {
+                json(serde_json::json!({
+                    "name": name, "skin": look.skin, "cape": look.cape, "model": look.model.name(),
+                }));
+            } else {
+                let say = |on: bool, what: &str| if on { what.to_string() } else { "none".into() };
+                println!(
+                    "{name}: skin {} ({} arms), cape {}",
+                    say(look.skin, "kept"),
+                    look.model.name(),
+                    say(look.cape, "kept")
+                );
+            }
         }
     }
     Ok(())

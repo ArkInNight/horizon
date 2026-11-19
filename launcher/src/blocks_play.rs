@@ -219,6 +219,32 @@ impl Launcher {
                     .into_any_element()
             },
         );
+        let jar = match self.settings.minecraft_jar.as_deref() {
+            Some(p) => div()
+                .font_family(theme::MONO)
+                .child(short(p))
+                .into_any_element(),
+            None => div()
+                .child(tr(
+                    "Pick the Minecraft jar to prepare from, or leave it automatic.",
+                ))
+                .into_any_element(),
+        };
+        let mut jar_buttons = div().flex().gap(px(8.));
+        if self.settings.minecraft_jar.is_some() {
+            jar_buttons =
+                jar_buttons.child(button("auto-jar", "Automatic", Kind::Ghost, &t).on_click(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.settings.minecraft_jar = None;
+                        this.save_settings();
+                        cx.notify();
+                    }),
+                ));
+        }
+        jar_buttons = jar_buttons.child(
+            button("choose-jar", "Choose jar…", Kind::Ghost, &t)
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.choose_jar(cx))),
+        );
         let mut rows = div()
             .flex()
             .flex_col()
@@ -264,6 +290,13 @@ impl Launcher {
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.choose_folder(cx)))
                         .into_any_element(),
                 ),
+                &t,
+            ))
+            .child(index_row(
+                4,
+                tr("Minecraft jar"),
+                Some(jar),
+                Some(jar_buttons.into_any_element()),
                 &t,
             )),
         };

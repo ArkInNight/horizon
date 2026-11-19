@@ -89,6 +89,7 @@ mod servers_page;
 mod setup_page;
 mod shell;
 mod shortcut_page;
+mod skin_page;
 mod specimen;
 mod sticky;
 mod switch_page;
@@ -392,6 +393,8 @@ struct Launcher {
     menu_closed_at: Option<Point<Pixels>>,
     /// The Wardrobe page's account and outfit (`wardrobe_page.rs`).
     wardrobe: Option<wardrobe_page::Wardrobe>,
+    /// Settings > Account's skin panel for an offline name (`skin_page.rs`).
+    skin: Option<skin_page::SkinPanel>,
     /// Name tag styles' marks; they outlive the account's `wardrobe`.
     wardrobe_marks: wardrobe_page::Marks,
     /// Ask the service again on the next draw of the Wardrobe (set by each visit).
