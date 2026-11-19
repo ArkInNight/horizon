@@ -51,6 +51,8 @@ pub(super) enum Field {
     Players,
     Command,
     AddPlayer,
+    /// Settings' new offline name (`switch_page.rs`).
+    OfflineName,
     Motd,
     Port,
     Token,
@@ -1227,6 +1229,7 @@ impl Launcher {
                 }
             }
             Field::AddPlayer => self.add_player(),
+            Field::OfflineName => self.offline_name_enter(),
             Field::Motd => {
                 let motd = self.servers.value(Field::Motd).trim().to_string();
                 if motd.is_empty() {

@@ -61,6 +61,12 @@ struct Mojang {
     urls: Mutex<Vec<String>>,
 }
 
+impl Default for Mojang {
+    fn default() -> Self {
+        Self::new(MANIFEST)
+    }
+}
+
 impl Mojang {
     fn new(body: &[u8]) -> Mojang {
         Mojang {
@@ -118,6 +124,77 @@ fn assert_linked(linked: &Path, base: &Path, jar: &str) {
         b"lib"
     );
     assert!(linked.join("assets/indexes/30.json").is_file());
+}
+
+/// A jar the player picked: the pinned one beside a launcher's files is linked into the official
+/// layout, while a wrong jar or one without any library is refused.
+#[test]
+fn a_chosen_jar_is_checked_and_uses_its_launcher_folder() {
+    let s = Scratch::new("chosen-jar");
+    let jar = "libraries/com/mojang/minecraft/26.3/minecraft-26.3-client.jar";
+    let base = s.launcher("Prism", "", jar);
+    let chosen = base.join(jar);
+    // The version JSON beside a picked jar is used when it is the one Horizon pins, so no
+    // manifest has to be fetched from Mojang.
+    s.write("Prism/versions/26.3/26.3.json", MANIFEST);
+    let linked = s.0.join("linked");
+    let mojang = Mojang::default();
+    let from_jar = |p: &Path| -> Result<PathBuf, String> {
+        match from_jar(p, &pins(), &linked, &[], &|url| mojang.fetch(url), &|_| {})? {
+            Resolved::Folder(dir) => Ok(dir),
+            Resolved::NotFound(_) => unreachable!(),
+        }
+    };
+    let resolved = from_jar(&chosen).unwrap();
+    assert_eq!(resolved, linked);
+    assert_linked(&linked, &base, jar);
+    assert!(mojang.urls.lock().unwrap().is_empty(), "no Mojang download");
+
+    // A jar that isn't the pinned release is refused before anything is linked.
+    let wrong = s.write("Downloads/26.3.jar", b"not the pinned client");
+    assert!(from_jar(&wrong)
+        .unwrap_err()
+        .contains("is not the Minecraft 26.3 release client jar"));
+    assert!(from_jar(&s.0.join("missing.jar"))
+        .unwrap_err()
+        .contains("doesn't exist"));
+}
+
+/// A lone jar (in Downloads) borrows libraries and assets from another known launcher folder.
+#[test]
+fn a_lone_jar_borrows_another_launchers_files() {
+    let s = Scratch::new("lone-jar");
+    let jar = "libraries/com/mojang/minecraft/26.3/minecraft-26.3-client.jar";
+    let base = s.launcher("Prism", "", jar);
+    s.write("Prism/versions/26.3/26.3.json", MANIFEST);
+    let chosen = s.write("Downloads/26.3.jar", CLIENT);
+    let linked = s.0.join("linked");
+    let mojang = Mojang::default();
+    let resolved = match from_jar(
+        &chosen,
+        &pins(),
+        &linked,
+        std::slice::from_ref(&base),
+        &|url| mojang.fetch(url),
+        &|_| {},
+    )
+    .unwrap()
+    {
+        Resolved::Folder(dir) => dir,
+        Resolved::NotFound(_) => unreachable!(),
+    };
+    assert_eq!(resolved, linked);
+    // The jar that plays is the one the player picked; a lone jar only borrows the libraries and
+    // assets of the other launcher folder, so its copy in the linked layout is a copy, not a link.
+    assert_eq!(
+        fs::read(linked.join("versions/26.3/26.3.jar")).unwrap(),
+        CLIENT
+    );
+    assert_eq!(
+        fs::read(linked.join("libraries/org/lib/1/lib-1.jar")).unwrap(),
+        b"lib"
+    );
+    assert!(mojang.urls.lock().unwrap().is_empty());
 }
 
 /// Folders whose names cmd would read as its own syntax unquoted are still linked (Windows makes

@@ -593,6 +593,9 @@ impl Launcher {
     pub(crate) fn account_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
         let t = self.theme;
         let (mut rows, mut n) = self.microsoft_rows(cx);
+        let (offline, last) = self.offline_rows(n, cx);
+        rows = rows.child(offline);
+        n = last;
         n += 1;
         let (title, detail, action) = self.sign_in_parts(cx);
         rows = rows.child(index_row(
@@ -634,7 +637,7 @@ impl Launcher {
                 actions = actions.child(
                     button(format!("select-{i}"), "Play as", Kind::Secondary, &t).on_click(
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.play_as(&uuid);
+                            this.play_as_player(account::Player::Microsoft(uuid.clone()));
                             cx.notify();
                         }),
                     ),

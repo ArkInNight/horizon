@@ -173,6 +173,7 @@ impl Launcher {
             sheet_tab: Default::default(),
             look: horizon_theme::glass::Glass::default_look(),
             menu_closed_at: None,
+            skin: None,
             wardrobe: None,
             wardrobe_marks: Default::default(),
             wardrobe_reload: false,

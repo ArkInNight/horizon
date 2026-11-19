@@ -691,19 +691,19 @@ fn any_owner_opens_the_gate_and_the_one_who_plays_brings_the_session() {
 }
 
 #[test]
-fn the_game_plays_only_as_an_account_that_owns_it() {
+fn the_game_plays_with_or_without_an_owner() {
     let store = MemoryStore::default();
     let (_, ep) = mock(|_| {});
-    // No account: no game.
-    let refused = launch_for_game(&ep, Some("test-client"), &store, &mut Accounts::default());
-    assert_eq!(refused.unwrap_err(), NoOwner::default());
+    // No account at all: Play still starts, without a session.
+    let pass = launch_for_game(&ep, Some("test-client"), &store, &mut Accounts::default()).unwrap();
+    assert!(pass.session.is_none());
     // An owner, none selected: it plays, with its session.
     let mut accounts = signed_in(&store, &secrets("mc-token", true));
     accounts.selected = None;
     let pass = launch_for_game(&ep, Some("test-client"), &store, &mut accounts).unwrap();
     assert_eq!(pass.session.unwrap().0.name, "Notch");
     assert_eq!(accounts.selected.as_deref(), Some(UUID));
-    // Another account plays: Notch owning the game doesn't let it play under a name of its own.
+    // Another, signed-out account plays: the game starts offline under its name.
     accounts.accounts.push(Account {
         uuid: "other".into(),
         name: "Alex".into(),
@@ -711,19 +711,73 @@ fn the_game_plays_only_as_an_account_that_owns_it() {
         cape: None,
     });
     accounts.play_as("other").unwrap();
-    let refused = launch_for_game(&ep, Some("test-client"), &store, &mut accounts).unwrap_err();
-    assert!(refused
-        .to_string()
-        .starts_with("Alex is no longer signed in"));
-    // The services say the account that plays doesn't own the game.
+    let pass = launch_for_game(&ep, Some("test-client"), &store, &mut accounts).unwrap();
+    assert!(pass.session.is_none());
+    // The services say the account that plays doesn't own the game: still offline.
     let (_, ep) = mock(|m| m.owns_game = false);
     let mut accounts = signed_in(&store, &secrets("mc-token", true));
-    let refused = launch_for_game(&ep, Some("test-client"), &store, &mut accounts);
-    assert_eq!(refused.unwrap_err(), NoOwner::default());
+    let pass = launch_for_game(&ep, Some("test-client"), &store, &mut accounts).unwrap();
+    assert!(pass.session.is_none());
 }
 
 #[test]
-fn files_from_launchers_with_offline_names_load_and_lose_them_on_save() {
+fn offline_names_play_and_are_kept() {
+    let store = MemoryStore::default();
+    let (_, ep) = mock(|_| {});
+    let mut accounts = Accounts::default();
+    accounts
+        .play_as_player(&store, Player::Offline("Builder_1".into()))
+        .unwrap();
+    assert_eq!(accounts.offline, ["Builder_1"]);
+    assert_eq!(accounts.player(), Player::Offline("Builder_1".into()));
+    assert_eq!(accounts.name_arg(), Some("Builder_1"));
+    // The name always reaches the game; without a chosen look there is no skin or cape.
+    assert_eq!(
+        accounts.look_env(),
+        vec![("HORIZON_PLAYER_NAME", "Builder_1".to_string())]
+    );
+    // An offline name never selects an account, even when one that owns the game is present.
+    let mut with_owner = signed_in(&store, &secrets("mc-token", true));
+    with_owner
+        .play_as_player(&store, Player::Offline("Builder_1".into()))
+        .unwrap();
+    let pass = launch_for_game(&ep, Some("test-client"), &store, &mut with_owner).unwrap();
+    assert!(pass.session.is_none());
+    assert!(with_owner.selected.is_none());
+    // The game's own name and validation.
+    accounts.play_as_player(&store, Player::GameName).unwrap();
+    assert_eq!(accounts.player(), Player::GameName);
+    assert_eq!(accounts.name_arg(), None);
+    assert!(!valid_offline_name("ab"));
+    assert!(!valid_offline_name("two words"));
+    assert!(valid_offline_name("Builder_1"));
+    // A look's variables reach the game when that name plays.
+    accounts
+        .play_as_player(&store, Player::Offline("Builder_1".into()))
+        .unwrap();
+    accounts.set_look(
+        "Builder_1",
+        crate::skins::Look {
+            skin: true,
+            model: crate::skins::Model::Slim,
+            ..Default::default()
+        },
+    );
+    // Without a kept PNG file, only the name reaches the game; `skins::env` adds the picture
+    // variables once a valid skin or cape file is there (tested in skins/tests.rs).
+    let env = accounts.look_env();
+    assert_eq!(env, vec![("HORIZON_PLAYER_NAME", "Builder_1".to_string())]);
+    // Forgetting the name removes its look and stops it playing.
+    let dir = std::env::temp_dir().join(format!("horizon-forget-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    accounts.remove_offline("builder_1", &dir).unwrap();
+    assert_eq!(accounts.player(), Player::GameName);
+    assert!(accounts.looks.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn offline_names_from_other_launchers_are_kept_on_save() {
     let dir = std::env::temp_dir().join(format!("horizon-old-offline-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("skins")).unwrap();
@@ -742,18 +796,21 @@ fn files_from_launchers_with_offline_names_load_and_lose_them_on_save() {
     let mut accounts = Accounts::load_from(&path);
     assert_eq!(accounts.accounts, vec![notch()]);
     assert!(accounts.selected().is_none());
-    // The account plays, and the save drops the names, their looks and their files.
+    assert_eq!(accounts.offline, ["Builder_1"]);
+    assert_eq!(accounts.offline_selected.as_deref(), Some("Builder_1"));
+    assert_eq!(accounts.look("Builder_1").model, crate::skins::Model::Slim);
+    // The offline name plays, and the save keeps the names, their looks and their files.
     let (_, ep) = mock(|_| {});
     let pass = launch_for_game(&ep, Some("test-client"), &store, &mut accounts).unwrap();
-    assert_eq!(pass.session.unwrap().0.uuid, UUID);
+    assert!(pass.session.is_none());
     accounts.save_to(&path).unwrap();
     let saved: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(
-        saved,
-        serde_json::json!({ "accounts": accounts.accounts, "selected": UUID })
-    );
-    assert!(!dir.join("skins").exists());
+    assert_eq!(saved["offline"], serde_json::json!(["Builder_1"]));
+    assert_eq!(saved["offline_selected"], serde_json::json!("Builder_1"));
+    assert_eq!(saved["looks"]["builder_1"]["model"], "slim");
+    assert!(dir.join("skins").join("builder_1.png").exists());
+    assert!(dir.join("skins").join("builder_1.cape.png").exists());
     // The developer option of 0.2.58 reads as nothing and is not written back.
     let settings = crate::backend::Settings::parse(r#"{"dev_offline": true, "keep_versions": 3}"#);
     let saved = serde_json::to_value(&settings).unwrap();
@@ -2437,12 +2494,10 @@ fn a_launch_as_another_account_leaves_the_selected_one() {
         skin: None,
         cape: None,
     });
-    // This launch plays as Alex: it is Alex who is told to sign in again (Notch owning the game
-    // doesn't let Alex play), and Notch is still the one `account select` picked.
-    let refused = launch_as(&offline(), Some("test-client"), &store, &mut accounts, alex);
-    assert!(refused
-        .unwrap_err()
-        .starts_with("Alex is no longer signed in"));
+    // This launch plays as Alex: the game starts offline under Alex's name (Notch owning the
+    // game doesn't give Alex a session), and Notch is still the one `account select` picked.
+    let pass = launch_as(&offline(), Some("test-client"), &store, &mut accounts, alex).unwrap();
+    assert!(pass.session.is_none());
     assert_eq!(accounts.selected.as_deref(), Some(UUID));
     // Notch plays with the last answer while the services can't be reached.
     let pass = launch_as(&offline(), Some("test-client"), &store, &mut accounts, UUID).unwrap();

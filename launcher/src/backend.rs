@@ -2405,7 +2405,17 @@ pub fn preparer(
                 .map_err(|e| e.trim_start_matches("\n  • ").to_string())?;
             own
         } else {
-            let resolved = sources::resolve(minecraft, &pins, &known, &linked, &fetch, log);
+            // A chosen jar is prepared from where it sits, borrowing libraries and assets from
+            // the other known folders: no Mojang download and no full launcher install needed.
+            let others: Vec<PathBuf> = minecraft_folders()
+                .into_iter()
+                .filter(|d| d != &linked)
+                .collect();
+            let resolved = if minecraft.is_file() {
+                sources::from_jar(minecraft, &pins, &linked, &others, &fetch, log)
+            } else {
+                sources::resolve(minecraft, &pins, &known, &linked, &fetch, log)
+            };
             if reused {
                 assets_folder(resolved, &chosen, &version, log)
             } else {
@@ -3172,8 +3182,10 @@ pub fn prune_old_versions() -> Vec<String> {
 /// The Minecraft folder to prepare from: the one given, the one chosen in the launcher, or the
 /// official launcher's default. It may be absent when imported files can be reused.
 pub fn minecraft_dir(requested: Option<PathBuf>) -> Result<PathBuf, String> {
+    let settings = Settings::load();
     Ok(requested
-        .or(Settings::load().minecraft_dir)
+        .or(settings.minecraft_jar)
+        .or(settings.minecraft_dir)
         .or_else(default_minecraft_dir)
         .unwrap_or_else(|| prepare::artifacts::minecraft_dir(None)))
 }
@@ -4429,6 +4441,10 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
     pub minecraft_dir: Option<PathBuf>,
+    /// A Minecraft client jar the player picked themselves, to prepare from without downloading
+    /// anything from Mojang. Only the pinned release jar is accepted (`sources::from_jar`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minecraft_jar: Option<PathBuf>,
     pub server_dir: Option<PathBuf>,
     /// Unset means on: only a player who turned it off has `false` here. 0.1.1 wrote its
     /// `auto_install` (off by default) for everyone, so this is a new key and that one is ignored.

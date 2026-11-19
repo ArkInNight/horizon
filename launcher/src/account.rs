@@ -8,7 +8,10 @@
 //!
 //! The owner gate ([`launch`]): the launcher starts the game only while an account in it owns
 //! Minecraft: Java Edition, as other launchers do, and the game plays as the selected account.
-//! The game binary itself, its harnesses and the servers don't go through the launcher's gate.
+//! Playing is also possible without any account: [`GATE_OPEN`] keeps the gate open for Play, and
+//! [`Accounts::offline`] names play with a name, skin and cape of their own. Downloads from Mojang
+//! still go through the gate. The game binary itself, its harnesses and the servers don't go
+//! through the launcher's gate.
 //!
 //! The Azure app (client ID) is Horizon's own and is configuration: `HORIZON_MSA_CLIENT_ID` at
 //! build time, or at run time to override it. Without one, sign-in says it is not configured.
@@ -24,10 +27,17 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// The keychain service name every secret is stored under.
 pub const SERVICE: &str = "dev.playhorizon.launcher";
 const SCOPE: &str = "XboxLive.signin offline_access";
-pub const NOT_CONFIGURED: &str = "This build of the launcher has no Microsoft sign-in (HORIZON_MSA_CLIENT_ID), so it can't start the game.";
+pub const NOT_CONFIGURED: &str =
+    "This build of the launcher has no Microsoft sign-in (HORIZON_MSA_CLIENT_ID).";
+/// Play never needs an account that owns the game: with none, the game starts offline. Downloading
+/// the game from Mojang still needs one (`download_for_owner`).
+pub const GATE_OPEN: bool = true;
 /// What every Play says while no account in the launcher owns the game.
 pub const NEEDS_OWNER: &str =
     "Sign in with a Microsoft account that owns Minecraft: Java Edition to play";
+/// Why an offline name can't play when the gate is closed (it isn't, in this build).
+const OFFLINE_NEEDS_OWNER: &str =
+    "Offline names need a Microsoft account that owns Minecraft: Java Edition in the launcher.";
 const DOES_NOT_OWN: &str = "This account doesn't own Minecraft: Java Edition.";
 const NO_PROFILE: &str =
     "This account has no Minecraft profile yet. Create one at minecraft.net, then sign in again.";
@@ -1742,13 +1752,35 @@ pub fn in_secrets_file() -> bool {
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Accounts {
     pub accounts: Vec<Account>,
-    /// The UUID of the account the game starts with; none: the first one.
+    /// The UUID of the account the game starts with; none plays offline.
     pub selected: Option<String>,
-    /// Offline names an older launcher kept (`offline`), read only so that the next save also
-    /// deletes their skins and capes (`skins/<name>.png`, `skins/<name>.cape.png`). Its
-    /// `offline_selected` and `looks` are dropped on read.
-    #[serde(default, rename = "offline", skip_serializing)]
-    old_offline: Vec<String>,
+    /// Offline names the player keeps, to switch between (`--name`): no account, no skin.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub offline: Vec<String>,
+    /// The offline name that plays when no account is selected; none: the name the game made up
+    /// (`horizon-player.txt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offline_selected: Option<String>,
+    /// Each offline name's skin and cape (`skins`), by the name in lowercase.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub looks: std::collections::BTreeMap<String, crate::skins::Look>,
+}
+
+/// Who plays, as the quick switch lists them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Player {
+    /// A Microsoft account, by UUID.
+    Microsoft(String),
+    /// An offline name.
+    Offline(String),
+    /// Offline as the name the game made up.
+    GameName,
+}
+
+/// Whether `name` can be an offline name: 3 to 16 letters, digits or `_`, as account names are.
+pub fn valid_offline_name(name: &str) -> bool {
+    (3..=16).contains(&name.chars().count())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The secrets an account keeps in `store`, if it still has them there.
@@ -1789,16 +1821,6 @@ impl Accounts {
             let _ = std::fs::remove_file(&tmp);
             return Err(e.to_string());
         }
-        // An older launcher's offline names: their skins and capes go too, missing files are fine.
-        if let Some(skins) = path.parent().map(|dir| dir.join("skins")) {
-            for name in &self.old_offline {
-                let key = name.to_ascii_lowercase();
-                for file in [format!("{key}.png"), format!("{key}.cape.png")] {
-                    let _ = std::fs::remove_file(skins.join(file));
-                }
-            }
-            let _ = std::fs::remove_dir(&skins);
-        }
         Ok(())
     }
     /// Saves what a launch renewed (names, skins) into `accounts.json` as it is now, under the
@@ -1823,6 +1845,11 @@ impl Accounts {
                 .clone()
                 .filter(|u| saved.accounts.iter().any(|a| &a.uuid == u));
         }
+        // Offline names and their looks are kept too: a launch that played as one must not
+        // undo its addition by saving an older copy of accounts.json.
+        saved.offline = self.offline.clone();
+        saved.offline_selected = self.offline_selected.clone();
+        saved.looks = self.looks.clone();
         saved.save_to(path)
     }
     pub fn selected(&self) -> Option<&Account> {
@@ -1873,6 +1900,121 @@ impl Accounts {
             .into_iter()
             .chain(self.accounts.iter().filter(|a| Some(*a) != self.selected()))
             .any(|a| secrets_in(store, &a.uuid).is_some_and(|s| s.owns))
+    }
+
+    /// Who plays now: the selected account, an offline name, or the game's own name.
+    pub fn player(&self) -> Player {
+        match (self.selected(), &self.offline_selected) {
+            (Some(a), _) => Player::Microsoft(a.uuid.clone()),
+            (None, Some(name)) => Player::Offline(name.clone()),
+            (None, None) => Player::GameName,
+        }
+    }
+
+    /// Plays as `who`, keeping an offline name if one was chosen. With [`GATE_OPEN`] no account is
+    /// needed; when the gate is closed an offline name needs an account that owns the game.
+    pub fn play_as_player(&mut self, store: &dyn SecretStore, who: Player) -> Result<(), String> {
+        self.play_as_player_with(store, who, false)
+    }
+
+    /// [`Self::play_as_player`], with an explicit override for the hidden developer option.
+    pub fn play_as_player_with(
+        &mut self,
+        store: &dyn SecretStore,
+        who: Player,
+        offline_without_owner: bool,
+    ) -> Result<(), String> {
+        match who {
+            Player::Microsoft(uuid) => {
+                if !self.accounts.iter().any(|a| a.uuid == uuid) {
+                    return Err("That account isn't signed in.".into());
+                }
+                self.selected = Some(uuid);
+            }
+            Player::Offline(name) => {
+                if !(offline_without_owner || GATE_OPEN) && !self.has_owner(store) {
+                    return Err(OFFLINE_NEEDS_OWNER.into());
+                }
+                let name = self.add_offline(&name)?;
+                self.selected = None;
+                self.offline_selected = Some(name);
+            }
+            Player::GameName => {
+                self.selected = None;
+                self.offline_selected = None;
+            }
+        }
+        Ok(())
+    }
+
+    /// Keeps an offline name (once, in any case); returns it as kept.
+    fn add_offline(&mut self, name: &str) -> Result<String, String> {
+        let name = name.trim();
+        if !valid_offline_name(name) {
+            return Err(format!(
+                "{name}: an offline name is 3 to 16 letters, digits or _"
+            ));
+        }
+        if let Some(kept) = self.offline.iter().find(|n| n.eq_ignore_ascii_case(name)) {
+            return Ok(kept.clone());
+        }
+        self.offline.push(name.to_string());
+        Ok(name.to_string())
+    }
+
+    /// Forgets an offline name: its look and its skin and cape files (`skins`) go with it; if
+    /// it was playing, the game's own name plays.
+    pub fn remove_offline(&mut self, name: &str, skins_dir: &Path) -> Result<(), String> {
+        let before = self.offline.len();
+        self.offline.retain(|n| !n.eq_ignore_ascii_case(name));
+        self.looks.remove(&name.to_ascii_lowercase());
+        if self.offline.len() == before {
+            return Err(format!("No offline name {name}."));
+        }
+        crate::skins::forget(skins_dir, name);
+        if self
+            .offline_selected
+            .as_ref()
+            .is_some_and(|n| n.eq_ignore_ascii_case(name))
+        {
+            self.offline_selected = None;
+        }
+        Ok(())
+    }
+
+    /// An offline name's look (the default: no skin of its own).
+    pub fn look(&self, name: &str) -> crate::skins::Look {
+        self.looks
+            .get(&name.to_ascii_lowercase())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Set an offline name's look.
+    pub fn set_look(&mut self, name: &str, look: crate::skins::Look) {
+        self.looks.insert(name.to_ascii_lowercase(), look);
+    }
+
+    /// The game's variables for the offline name that plays: its name, skin and cape.
+    pub fn look_env(&self) -> Vec<(&'static str, String)> {
+        let mut out = Vec::new();
+        if let Some(name) = self.name_arg() {
+            out.push(("HORIZON_PLAYER_NAME", name.to_string()));
+            out.extend(crate::skins::env(
+                &crate::skins::dir(),
+                name,
+                &self.look(name),
+            ));
+        }
+        out
+    }
+
+    /// The offline name that plays when no account is selected.
+    pub fn name_arg(&self) -> Option<&str> {
+        match self.selected() {
+            Some(_) => None,
+            None => self.offline_selected.as_deref(),
+        }
     }
 
     /// Plays as the signed-in account `uuid`.
@@ -2065,21 +2207,32 @@ pub fn launch_for_game(
     store: &dyn SecretStore,
     accounts: &mut Accounts,
 ) -> Result<Launch, NoOwner> {
-    if accounts.selected().is_none() {
+    // An offline name plays without selecting an account; don't override it with the first one.
+    if accounts.selected().is_none() && accounts.offline_selected.is_none() {
         accounts.selected = accounts.accounts.first().map(|a| a.uuid.clone());
     }
-    let pass = launch(ep, client_id, store, accounts)?;
-    let owns = accounts
-        .selected()
-        .and_then(|a| secrets_in(store, &a.uuid))
-        .is_some_and(|s| s.owns);
-    if owns {
-        Ok(pass)
-    } else {
-        // Why that account can't play (it doesn't own the game, signed out, an unread keyring).
-        Err(NoOwner {
-            keyring: pass.offline,
-        })
+    let gate = (|| {
+        let pass = launch(ep, client_id, store, accounts)?;
+        let owns = accounts
+            .selected()
+            .and_then(|a| secrets_in(store, &a.uuid))
+            .is_some_and(|s| s.owns);
+        if owns {
+            Ok(pass)
+        } else {
+            // Why that account can't play (doesn't own the game, signed out, unread keyring).
+            Err(NoOwner {
+                keyring: pass.offline,
+            })
+        }
+    })();
+    match gate {
+        Err(refused) if GATE_OPEN => {
+            // Play is allowed without an owning account; downloads still go through `launch`.
+            let _ = refused;
+            Ok(Launch::default())
+        }
+        pass => pass,
     }
 }
 
@@ -2325,15 +2478,57 @@ pub fn session_for_game(game_home: &Path) -> Result<GameSession, NoOwner> {
         store(),
         &mut accounts,
     )?;
-    let env = split_sessions(
+    let mut env = split_sessions(
         game_home,
         &mut accounts,
         pass.session.as_ref().map(|(a, _)| a.uuid.as_str()),
     );
+    // An offline name's name, skin and cape reach the game as variables, like a session does.
+    env.extend(accounts.look_env());
     if let Err(e) = accounts.save_renewed() {
         eprintln!("Horizon: the accounts are not saved: {e}");
     }
     Ok(session_file(game_home, pass, env))
+}
+
+/// [`session_for_game`] for one launch as `who` (an account, an offline name or the game's name).
+/// The choice is kept in `accounts.json`, so the next Play uses it too.
+pub fn session_for_game_as_player(game_home: &Path, who: &Player) -> Result<GameSession, String> {
+    let mut accounts = Accounts::load();
+    let pass = launch_as_player(
+        &Endpoints::live(),
+        client_id().as_deref(),
+        store(),
+        &mut accounts,
+        who,
+    );
+    if let Err(e) = accounts.save_renewed() {
+        eprintln!("Horizon: the accounts are not saved: {e}");
+    }
+    let pass = pass?;
+    let mut env = split_sessions(
+        game_home,
+        &mut accounts,
+        pass.session.as_ref().map(|(a, _)| a.uuid.as_str()),
+    );
+    env.extend(accounts.look_env());
+    if let Err(e) = accounts.save_renewed() {
+        eprintln!("Horizon: the accounts are not saved: {e}");
+    }
+    Ok(session_file(game_home, pass, env))
+}
+
+/// The owner gate as `who`, on `accounts`, for an offline name or the game's own name.
+fn launch_as_player(
+    ep: &Endpoints,
+    client_id: Option<&str>,
+    store: &dyn SecretStore,
+    accounts: &mut Accounts,
+    who: &Player,
+) -> Result<Launch, String> {
+    accounts
+        .play_as_player(store, who.clone())
+        .and_then(|()| launch_for_game(ep, client_id, store, accounts).map_err(|e| e.to_string()))
 }
 
 /// [`session_for_game`] for one launch as `who` (`play --account`, a signed-in account): who

@@ -154,12 +154,9 @@ mod tests {
     #[test]
     fn account_gate_is_preserved_without_opt_in_and_for_signed_lineage() {
         if let Ok(tag) = std::env::var("OFFLINE_GATE_TEST_TAG") {
+            // The developer path is still opt-in and still checks the game's capability when it
+            // is used. Ordinary Play no longer needs it: the launcher's open gate plays offline.
             assert!(!enabled(&tag));
-            let error = crate::backend::client_as(&tag, None).unwrap_err();
-            assert!(
-                error.contains(crate::i18n::tr(crate::backend::SIGN_IN_HINT)),
-                "{error}"
-            );
             return;
         }
         for (tag, opt_in) in [

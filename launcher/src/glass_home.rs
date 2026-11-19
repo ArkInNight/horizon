@@ -1043,6 +1043,25 @@ impl Launcher {
                     }),
                 ));
             }
+            if horizon {
+                menu = menu.child(
+                    ui::menu_item(
+                        "folder-jar",
+                        tr("Choose the Minecraft jar").into(),
+                        self.settings
+                            .minecraft_jar
+                            .as_deref()
+                            .map_or_else(|| tr("Automatic").into(), short),
+                        false,
+                        &t,
+                    )
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.home_menu = HomeMenu::None;
+                        this.choose_jar(cx);
+                        cx.notify();
+                    })),
+                );
+            }
             let edit = instance.clone();
             let note = trf("Edit {name}", &[("name", &instance.name)]);
             menu = menu.child(

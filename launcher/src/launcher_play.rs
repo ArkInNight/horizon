@@ -181,11 +181,8 @@ impl Launcher {
     pub(crate) fn prepare_version(&mut self, tag: String, from: backend::MinecraftFrom) {
         self.prepare_tag = Some(tag.clone());
         horizon_launcher::mojang::CANCEL.store(false, Ordering::Relaxed);
-        let minecraft = self
-            .settings
-            .minecraft_dir
-            .clone()
-            .unwrap_or_else(|| horizon_platform::prepare::artifacts::minecraft_dir(None));
+        let minecraft = horizon_launcher::backend::minecraft_dir(None)
+            .unwrap_or_else(|_| horizon_platform::prepare::artifacts::minecraft_dir(None));
         self.prepare_log.clear();
         self.prepare_error = None;
         self.prepare_log
@@ -530,6 +527,28 @@ impl Launcher {
         }
         self.sign_in_state = None;
         self.sign_in_target = None;
+    }
+
+    /// Picks a Minecraft client jar to prepare from; preparing checks it is the pinned one.
+    pub(crate) fn choose_jar(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Choose".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(mut paths))) = paths.await {
+                if let Some(path) = paths.pop() {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings.minecraft_jar = Some(path);
+                        this.save_settings();
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
     }
 
     pub(crate) fn choose_folder(&mut self, cx: &mut Context<Self>) {

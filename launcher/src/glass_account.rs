@@ -12,26 +12,35 @@ impl Launcher {
     pub(super) fn glass_account(&mut self, cx: &mut Context<Self>) -> Div {
         let wide = self.window_width >= crate::glass_home::WIDE;
         // Signed out, "who plays" would only repeat the Microsoft card's call to sign in.
-        if self.accounts.selected().is_none() {
-            return div().child(self.glass_microsoft_card(cx).w_full());
-        }
-        let left = self.glass_who_plays();
-        let right = self.glass_microsoft_card(cx);
-        if wide {
-            div()
-                .flex()
-                .flex_row()
-                .gap(px(8.))
-                .child(left.flex_1().min_w(px(280.)).p(px(20.)))
-                .child(right.flex_none().w(px(360.)))
+        let main = if self.accounts.selected().is_none() {
+            self.glass_microsoft_card(cx).w_full()
         } else {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(16.))
-                .child(left.w_full().min_w_0().p(px(20.)))
-                .child(right.w_full())
-        }
+            let left = self.glass_who_plays();
+            let right = self.glass_microsoft_card(cx);
+            if wide {
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(8.))
+                    .child(left.flex_1().min_w(px(280.)).p(px(20.)))
+                    .child(right.flex_none().w(px(360.)))
+            } else {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(16.))
+                    .child(left.w_full().min_w_0().p(px(20.)))
+                    .child(right.w_full())
+            }
+        };
+        // Offline names play without an account: they live beside the Microsoft card.
+        let (offline, _) = self.offline_rows(0, cx);
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(main)
+            .child(offline)
     }
 
     /// The player now.
