@@ -1,5 +1,6 @@
-//! The owner gate from the outside: with no account that owns Minecraft: Java Edition in the
-//! launcher, neither `horizon-launcher play` nor the MCP server's play starts the game.
+//! The owner gate from the outside: Play no longer needs an account that owns Minecraft, while
+//! downloading the game from Mojang still does. From a home with only an offline name, Play goes
+//! on to prepare the version instead of asking for a sign-in.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -44,14 +45,16 @@ fn text(out: &Output) -> String {
 }
 
 #[test]
-fn the_cli_refuses_to_play_without_an_owner() {
+fn the_cli_plays_offline_without_an_owner() {
     let root = home("cli");
     let out = launcher(&root, &["play"]).output().unwrap();
     let said = text(&out);
+    // The home has no prepared version, so Play stops there — not at the owner gate.
     assert!(!out.status.success(), "{said}");
-    assert!(said.contains(REFUSED), "{said}");
-    assert!(said.contains("horizon-launcher account sign-in"), "{said}");
-    // Nothing of the game ran, and a refusal doesn't rewrite the accounts.
+    assert!(said.contains("is not prepared yet"), "{said}");
+    assert!(!said.contains(REFUSED), "{said}");
+    assert!(!said.contains("horizon-launcher account sign-in"), "{said}");
+    // Nothing of the game ran, and the failure doesn't rewrite the accounts.
     assert!(!root.join("game/sessions").exists());
     let accounts = std::fs::read_to_string(root.join("launcher/accounts.json")).unwrap();
     assert!(accounts.contains("Builder_1"), "{accounts}");
@@ -88,7 +91,7 @@ fn prepare_download_explains_the_sign_in_requirement() {
 }
 
 #[test]
-fn the_mcp_server_refuses_to_play_without_an_owner() {
+fn the_mcp_server_plays_offline_without_an_owner() {
     let root = home("mcp");
     let mut child = launcher(&root, &["mcp"])
         .stdin(Stdio::piped())
@@ -113,6 +116,8 @@ fn the_mcp_server_refuses_to_play_without_an_owner() {
         .expect("a reply to play");
     assert_eq!(reply["result"]["isError"], true, "{reply}");
     let said = reply["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(said.contains(REFUSED), "{said}");
+    // Play got past the sign-in gate and stopped only because the version isn't prepared.
+    assert!(said.contains("is not prepared yet"), "{said}");
+    assert!(!said.contains(REFUSED), "{said}");
     let _ = std::fs::remove_dir_all(&root);
 }
