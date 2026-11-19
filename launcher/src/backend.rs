@@ -3424,9 +3424,11 @@ fn launcher_asset_running_from(appimage: bool) -> Option<&'static str> {
     }
 }
 
-/// Development builds and `HORIZON_LAUNCHER_NO_SELF_UPDATE` never replace themselves.
+/// This fork's offline build must never replace itself with upstream's launcher: an update from
+/// `horizon-rust/horizon` would restore the account gate and lose offline play. Updates come from
+/// a new fork build instead.
 pub fn self_update_allowed() -> bool {
-    !cfg!(debug_assertions) && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()
+    false
 }
 
 /// The version in `horizon-launcher --version`'s output (`horizon-launcher 0.1.5`).
