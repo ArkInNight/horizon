@@ -13,7 +13,7 @@ class ConcurrencyTests(unittest.TestCase):
     def test_checks_replace_pull_requests_but_finish_the_running_main_check(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
         self.assertEqual(workflow["concurrency"], {
-            "group": "checks-${{ github.event.pull_request.number || "
+            "group": "checks-${{ vars.CI_RUNNER && github.run_id || github.event.pull_request.number || "
                      "(github.event_name == 'push' && 'main') || github.sha }}",
             "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
         })
