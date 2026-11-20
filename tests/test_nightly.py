@@ -462,7 +462,7 @@ class SdkPairTests(unittest.TestCase):
         command = nightly.signature_check("a" * 40, Path("/tmp/x"), ["sdk.json"])
         self.assertEqual(command[:6], ["cargo", "run", "--locked", "--quiet", "-p", "horizon-release-sign"])
         arguments = command[command.index("--") + 1:]
-        self.assertEqual(arguments, ["verify", "--repository", "horizon-rust/horizon", "--tag", "sdk-" + "a" * 40,
+        self.assertEqual(arguments, ["verify", "--repository", nightly.train.REPO, "--tag", "sdk-" + "a" * 40,
                                      "--only", "sdk.json", "/tmp/x"])
         self.assertNotIn("--publishing", command, "an unsigned SDK is refused, as the launcher refuses it")
 

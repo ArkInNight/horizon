@@ -254,7 +254,7 @@ jobs:
           echo "tested=$tested" >> "$GITHUB_OUTPUT"
       - name: Install Rust toolchain and the ALSA and udev headers the client links against
         env:
-          HOSTED: ${{ startsWith(runner.name, 'blacksmith-') }}
+          HOSTED: ${{ vars.CI_RUNNER != '' || startsWith(runner.name, 'blacksmith-') }}
         run: tools/ci/install_rust.sh libasound2-dev libudev-dev
       - name: Mount the build folder
         if: startsWith(runner.name, 'blacksmith-')
@@ -301,7 +301,7 @@ jobs:
       - name: Install Rust toolchain and the ALSA and udev headers the client links against
         if: steps.rust.outputs.required != 'false'
         env:
-          HOSTED: ${{ startsWith(runner.name, 'blacksmith-') }}
+          HOSTED: ${{ vars.CI_RUNNER != '' || startsWith(runner.name, 'blacksmith-') }}
         run: tools/ci/install_rust.sh libasound2-dev libudev-dev
       - name: Mount the build folder
         if: steps.rust.outputs.required != 'false' && startsWith(runner.name, 'blacksmith-')
@@ -351,7 +351,7 @@ jobs:
           echo "tested=$tested" >> "$GITHUB_OUTPUT"
       - name: Install Rust and the headers GPUI links against
         env:
-          HOSTED: ${{ startsWith(runner.name, 'blacksmith-') }}
+          HOSTED: ${{ vars.CI_RUNNER != '' || startsWith(runner.name, 'blacksmith-') }}
         run: |
           tools/ci/install_rust.sh libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev libvulkan-dev \
             libasound2-dev libudev-dev
@@ -415,7 +415,7 @@ jobs:
       - name: Install Rust toolchain, the ALSA and udev headers the client links against, and the mold linker
         if: steps.rust.outputs.required != 'false'
         env:
-          HOSTED: ${{ startsWith(runner.name, 'blacksmith-') }}
+          HOSTED: ${{ vars.CI_RUNNER != '' || startsWith(runner.name, 'blacksmith-') }}
         run: tools/ci/install_rust.sh libasound2-dev libudev-dev mold
       # As in verify-tree: a default toolchain and no GPU, so a part doesn't depend on which pool took it.
       - name: Our runners as GitHub's (a default Rust toolchain, no GPU)
@@ -520,7 +520,7 @@ jobs:
       - name: Install Rust toolchain, the ALSA and udev headers the client links against, and the mold linker
         if: steps.rust.outputs.mod_points != 'false'
         env:
-          HOSTED: ${{ startsWith(runner.name, 'blacksmith-') }}
+          HOSTED: ${{ vars.CI_RUNNER != '' || startsWith(runner.name, 'blacksmith-') }}
         run: |
           if [ "$HOSTED" = true ]; then
             sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev mold

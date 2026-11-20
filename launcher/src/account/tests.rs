@@ -1265,8 +1265,7 @@ fn the_java_edition_plays_as_an_owner_even_offline() {
     assert!(player.offline);
     assert_eq!(player.token, "0");
     assert_eq!(
-        player.uuid,
-        "36532b5e-c442-3dbb-a24c-c7e55d0f979a",
+        player.uuid, "36532b5e-c442-3dbb-a24c-c7e55d0f979a",
         "the offline UUID of OfflinePlayer:Alex"
     );
 }
