@@ -3125,7 +3125,16 @@ mod tests {
             [false],
             "configuring turned before the acknowledgement"
         );
-        assert!(play.configuring.load(Ordering::Acquire));
+        // The flag is stored just after the acknowledgement is queued, so a reader that sees the
+        // acknowledgement first can observe the old value. Wait for the handoff, don't race it.
+        let turned = std::time::Instant::now();
+        while !play.configuring.load(Ordering::Acquire) {
+            assert!(
+                turned.elapsed() < WAIT,
+                "the reconfiguration never turned configuring on"
+            );
+            std::thread::yield_now();
+        }
         play.server
             .send(&cfg::Clientbound::KeepAlive(cfg::KeepAlive { id: 5 }).encode())
             .unwrap();
