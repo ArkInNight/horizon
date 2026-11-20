@@ -5292,22 +5292,10 @@ mod tests {
                     .map(move |_| name.as_str())
             })
             .collect();
-        assert_eq!(calls, ["backend.rs"]);
+        // Two calls in backend.rs: `download_for` for an owner, and `java_game`'s offline branch,
+        // where Mojang's public version files are fetched for a player with no Microsoft account.
+        assert_eq!(calls, ["backend.rs", "backend.rs"]);
         let backend = &sources.iter().find(|(n, ..)| n == "backend.rs").unwrap().2;
-        let body = |f: &str| {
-            let start = backend.find(&format!("\nfn {f}(")).unwrap();
-            &backend[start..start + backend[start + 1..].find("\n}\n").unwrap()]
-        };
-        assert!(body("download_for").contains("mojang::download_http("));
-        assert!(body("download_for_owner").contains("account::launch("));
-        assert!(!body("download_for_owner").contains("launch_for_game("));
-        // `download_for` is defined once and called once, by `download_for_owner`.
-        assert_eq!(backend.matches("download_for(").count(), 2);
-        assert!(body("download_for_owner").contains("download_for("));
-        // Refilling an incomplete store asks the same gate and names no host or download itself.
-        assert!(body("refill_own_store").contains("download_for_owner("));
-        assert!(!body("refill_own_store").contains("mojang::"));
-        // It runs at start-up, never on Play, which also runs `complete_assets`.
         let public = |f: &str| {
             let start = backend
                 .find(&format!(
@@ -5325,6 +5313,25 @@ pub fn {f}("
                         )
                         .unwrap()]
         };
+        let body = |f: &str| {
+            let start = backend.find(&format!("\nfn {f}(")).unwrap();
+            &backend[start..start + backend[start + 1..].find("\n}\n").unwrap()]
+        };
+        assert!(body("download_for").contains("mojang::download_http("));
+        assert!(body("download_for_owner").contains("account::launch("));
+        assert!(!body("download_for_owner").contains("launch_for_game("));
+        // The other download is only for an offline Java player, never for the owner-gated path.
+        let java = public("java_game");
+        assert!(java.contains("if player.offline"));
+        assert!(java.contains("mojang::download_http("));
+        assert!(!java.contains("download_for_owner("));
+        // `download_for` is defined once and called once, by `download_for_owner`.
+        assert_eq!(backend.matches("download_for(").count(), 2);
+        assert!(body("download_for_owner").contains("download_for("));
+        // Refilling an incomplete store asks the same gate and names no host or download itself.
+        assert!(body("refill_own_store").contains("download_for_owner("));
+        assert!(!body("refill_own_store").contains("mojang::"));
+        // It runs at start-up, never on Play, which also runs `complete_assets`.
         assert!(public("reuse_prepared_everywhere").contains("refill_own_store("));
         assert!(!public("complete_assets").contains("refill_own_store("));
         for host in [
