@@ -29,7 +29,8 @@ VERIFY_PARTS = ("verify-scope", "verify-tree", "verify-lint", "verify-server", "
 BASH = shutil.which("bash")
 # verify's parts: our checks runners only with SELF_HOSTED_CI=all, Blacksmith's otherwise.
 ONLY_WITH_ALL = re.compile(r"^\$\{\{ vars\.SELF_HOSTED_CI == 'all' && fromJSON\('\[\"self-hosted\", \"linux\", "
-                           r"\"horizon-checks\"\]'\) \|\| 'blacksmith-\d+vcpu-ubuntu-2404' \}\}$")
+                           r"\"horizon-checks\"\]'\) \|\| (?:vars\.CI_RUNNER \|\| )?"
+                           r"'blacksmith-\d+vcpu-ubuntu-2404' \}\}$")
 TRUSTED_WRITES = re.compile(r"^\s*(contents|actions|packages|id-token|deployments|attestations): write", re.M)
 # actions: write can start workflows too; cancel-on-close needs it to cancel runs and runs no checkout at all.
 CANCELS_RUNS = {"cancel-on-close.yml cancel"}
@@ -89,7 +90,8 @@ class OwnRunnerTests(unittest.TestCase):
                 continue
             self.assertIn("vars.SELF_HOSTED_CI != 'off'", value, where)
             # Both labels select a GitHub-hosted or Blacksmith Ubuntu runner when our pools are disabled.
-            self.assertRegex(value, r"\|\| '(?:ubuntu-(?:latest|24\.04)|blacksmith-\d+vcpu-ubuntu-2404)' \}\}$", where)
+            self.assertRegex(value, r"\|\| (?:vars\.CI_RUNNER \|\| )?"
+                                    r"'(?:ubuntu-(?:latest|24\.04)|blacksmith-\d+vcpu-ubuntu-2404)' \}\}$", where)
             if "checks" in pools:
                 # SELF_HOSTED_CI=light: every checks job back to GitHub, the bots stay.
                 self.assertIn("vars.SELF_HOSTED_CI != 'light'", value, where)
