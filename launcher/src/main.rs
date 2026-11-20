@@ -809,8 +809,8 @@ mod tests {
     }
 
     /// An owner's Play works on a version not prepared yet: it prepares it (downloading
-    /// Minecraft from Mojang when this computer has no install), then plays. Without an owner
-    /// it stays off: signing in comes first.
+    /// Minecraft from Mojang when this computer has no install), then plays. Offline play needs
+    /// no owner either: it prepares from the player's own files (or a chosen jar). Busy blocks it.
     #[test]
     fn play_prepares_first_for_an_owner() {
         use super::{play_press, PlayPress};
@@ -820,8 +820,14 @@ mod tests {
             play_press(false, Some(true), false),
             PlayPress::PrepareThenPlay
         );
-        assert_eq!(play_press(false, Some(false), false), PlayPress::Nothing);
-        assert_eq!(play_press(false, None, false), PlayPress::Nothing);
+        assert_eq!(
+            play_press(false, Some(false), false),
+            PlayPress::PrepareThenPlay
+        );
+        assert_eq!(
+            play_press(false, None, false),
+            PlayPress::PrepareThenPlay
+        );
         assert_eq!(play_press(false, Some(true), true), PlayPress::Nothing);
         assert_eq!(play_press(true, Some(true), true), PlayPress::Nothing);
     }
@@ -829,12 +835,17 @@ mod tests {
     /// Home's one button never says Play over a click that prepares, or that cannot play.
     #[test]
     fn play_says_what_it_will_do() {
-        use super::{play_label, play_press};
+        use super::{play_label, play_press, PlayPress};
         let say = |prepared, owner| play_label(play_press(prepared, owner, false), owner);
         assert_eq!(say(true, Some(true)), "Play");
         assert_eq!(say(false, Some(true)), "Prepare & play");
-        assert_eq!(say(false, Some(false)), "Sign in to play");
-        assert_eq!(say(false, None), "Play");
+        assert_eq!(say(false, Some(false)), "Prepare & play");
+        assert_eq!(say(false, None), "Prepare & play");
+        // With the gate open, an unavailable Play with no account still explains the old reason.
+        assert_eq!(
+            play_label(PlayPress::Nothing, Some(false)),
+            "Sign in to play"
+        );
     }
 
     /// A server's Join (and every other shortcut) waits like Play: not while the version's
