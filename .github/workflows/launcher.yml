@@ -106,8 +106,10 @@ jobs:
         with:
           fetch-depth: 0
       - id: mode
-        # Off main every run is a dry run (a launcher branch's push only builds).
-        run: echo "dry_run=${{ github.ref != 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}" >> "$GITHUB_OUTPUT"
+        # Off main every run is a dry run (a launcher branch's push only builds). A fork's direct
+        # push to main has no merged pull requests for the release train to count, so build it as
+        # a dry run too instead of skipping every job; nothing is published from a fork.
+        run: echo "dry_run=${{ (github.event_name == 'push' && github.repository != 'horizon-rust/horizon') || github.ref != 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}" >> "$GITHUB_OUTPUT"
       - id: decide
         shell: bash
         env:
