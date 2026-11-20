@@ -1,10 +1,13 @@
-//! The owner gate from the outside: with no account that owns Minecraft: Java Edition in the
-//! launcher, neither `horizon-launcher play` nor the MCP server's play starts the game.
+//! The owner gate from the outside: playing offline needs no account that owns Minecraft: Java
+//! Edition, so `horizon-launcher play` and the MCP server's play go through the usual "prepare
+//! this version first" path instead of asking for a sign-in.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-const REFUSED: &str = "Sign in with a Microsoft account that owns Minecraft: Java Edition to play.";
+const SIGN_IN_REFUSAL: &str =
+    "Sign in with a Microsoft account that owns Minecraft: Java Edition to play.";
+const UNPREPARED: &str = "is not prepared yet. Prepare it first:";
 
 /// Fresh homes with one installed (not prepared) version and an offline name from an older
 /// launcher, as a player who played offline before the gate has.
@@ -44,14 +47,18 @@ fn text(out: &Output) -> String {
 }
 
 #[test]
-fn the_cli_refuses_to_play_without_an_owner() {
+fn the_cli_prepares_first_without_an_owner() {
     let root = home("cli");
     let out = launcher(&root, &["play"]).output().unwrap();
     let said = text(&out);
     assert!(!out.status.success(), "{said}");
-    assert!(said.contains(REFUSED), "{said}");
-    assert!(said.contains("horizon-launcher account sign-in"), "{said}");
-    // Nothing of the game ran, and a refusal doesn't rewrite the accounts.
+    assert!(said.contains(UNPREPARED), "{said}");
+    assert!(
+        said.contains("horizon-launcher prepare --version v2026.10.27.01"),
+        "{said}"
+    );
+    assert!(!said.contains(SIGN_IN_REFUSAL), "{said}");
+    // Nothing of the game ran, and a failed play doesn't rewrite the accounts.
     assert!(!root.join("game/sessions").exists());
     let accounts = std::fs::read_to_string(root.join("launcher/accounts.json")).unwrap();
     assert!(accounts.contains("Builder_1"), "{accounts}");
@@ -88,7 +95,7 @@ fn prepare_download_explains_the_sign_in_requirement() {
 }
 
 #[test]
-fn the_mcp_server_refuses_to_play_without_an_owner() {
+fn the_mcp_server_prepares_first_without_an_owner() {
     let root = home("mcp");
     let mut child = launcher(&root, &["mcp"])
         .stdin(Stdio::piped())
@@ -113,6 +120,7 @@ fn the_mcp_server_refuses_to_play_without_an_owner() {
         .expect("a reply to play");
     assert_eq!(reply["result"]["isError"], true, "{reply}");
     let said = reply["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(said.contains(REFUSED), "{said}");
+    assert!(said.contains(UNPREPARED), "{said}");
+    assert!(!said.contains(SIGN_IN_REFUSAL), "{said}");
     let _ = std::fs::remove_dir_all(&root);
 }
