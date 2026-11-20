@@ -1256,11 +1256,18 @@ fn the_java_edition_plays_as_an_owner_even_offline() {
     // No network: the last token of an account that owned the game.
     let player = java_player_with(&offline(), Some("test-client"), &store, &mut accounts).unwrap();
     assert_eq!(player.token, "mc-token");
-    // Never for an account that doesn't own it.
+    // An account that doesn't own it plays offline instead, as the chosen offline name.
     let mut accounts = signed_in(&store, &secrets("mc-token", false));
+    accounts.offline.push("Alex".into());
+    accounts.offline_selected = Some("Alex".into());
+    let player = java_player_with(&offline(), Some("test-client"), &store, &mut accounts).unwrap();
+    assert_eq!(player.name, "Alex");
+    assert!(player.offline);
+    assert_eq!(player.token, "0");
     assert_eq!(
-        java_player_with(&offline(), Some("test-client"), &store, &mut accounts).unwrap_err(),
-        NoOwner::default().to_string()
+        player.uuid,
+        "36532b5e-c442-3dbb-a24c-c7e55d0f979a",
+        "the offline UUID of OfflinePlayer:Alex"
     );
 }
 

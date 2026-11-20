@@ -2106,7 +2106,28 @@ pub fn java_game(
     if !marker.is_file() {
         let listed = crate::minecraft_versions::load()?;
         let version = listed.find(&game.minecraft)?;
-        download_version_for_owner(&version.id, &version.sha1, log)?;
+        if player.offline {
+            // Mojang's version files are public. With the gate open an offline player downloads
+            // them without asking for an account that owns the game.
+            let pins = sources::Pins::for_version(&version.id, &version.sha1);
+            let os = match sources::Os::current() {
+                sources::Os::Linux => "linux",
+                sources::Os::MacOs => "osx",
+                sources::Os::Windows => "windows",
+            };
+            mojang::download_http(
+                &pins,
+                &minecraft,
+                os,
+                mojang::JOBS,
+                &crate::downloads::install_metadata,
+                &mojang::CANCEL,
+                log,
+            )
+            .map_err(|e| format!("Horizon tried to download {} from Mojang: {e}", version.id))?;
+        } else {
+            download_version_for_owner(&version.id, &version.sha1, log)?;
+        }
         fs::write(&marker, "").map_err(|e| format!("{}: {e}", marker.display()))?;
     }
     // The Java the game needs, which also runs a loader's installer.

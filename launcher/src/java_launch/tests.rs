@@ -23,6 +23,17 @@ fn player() -> Player {
         uuid: "069a79f444e94726a5befca90e38aaf5".into(),
         token: "mc-token".into(),
         xuid: "2535400000000000".into(),
+        offline: false,
+    }
+}
+
+fn offline_player() -> Player {
+    Player {
+        name: "Alex".into(),
+        uuid: "36532b5e-c442-3dbb-a24c-c7e55d0f979a".into(),
+        token: "0".into(),
+        xuid: String::new(),
+        offline: true,
     }
 }
 
@@ -105,6 +116,65 @@ fn a_modern_version_gets_its_rules_placeholders_and_classpath() {
     assert_eq!(a[at("--userType") + 1], "msa");
     // Features are off: no demo, no custom size.
     assert!(!a.iter().any(|x| x == "--demo" || x == "--width"));
+}
+
+#[test]
+fn an_offline_player_gets_no_msa_token() {
+    let dir = scratch("offline-player");
+    let (mc, game, natives) = (dir.join("mc"), dir.join("game"), dir.join("natives"));
+    let java = dir.join("java");
+    let p = offline_player();
+    let launch = Launch {
+        minecraft: &mc,
+        game_dir: &game,
+        natives: &natives,
+        java: &java,
+        memory_mb: 2048,
+        jvm_args: &[],
+        player: &p,
+        os: "linux",
+        window: None,
+        server: None,
+    };
+    let a = args(&command(&modern(), &launch).unwrap());
+    let at = |s: &str| {
+        a.iter()
+            .position(|x| x == s)
+            .unwrap_or_else(|| panic!("no {s} in {a:?}"))
+    };
+    assert_eq!(a[at("--username") + 1], "Alex");
+    assert_eq!(a[at("--uuid") + 1], p.uuid);
+    assert_eq!(a[at("--accessToken") + 1], "0");
+    assert_eq!(a[at("--userType") + 1], "legacy");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_modern_version_keeps_its_classpath_and_rules() {
+    let dir = scratch("modern-tail");
+    let (mc, game, natives) = (dir.join("mc"), dir.join("game"), dir.join("natives"));
+    let java = dir.join("java");
+    let p = player();
+    let extra = vec!["-XX:+UseZGC".to_string()];
+    let launch = |os| Launch {
+        minecraft: &mc,
+        game_dir: &game,
+        natives: &natives,
+        java: &java,
+        memory_mb: 6144,
+        jvm_args: &extra,
+        player: &p,
+        os,
+        window: None,
+        server: None,
+    };
+    let cmd = command(&modern(), &launch("osx")).unwrap();
+    let a = args(&cmd);
+    let at = |s: &str| {
+        a.iter()
+            .position(|x| x == s)
+            .unwrap_or_else(|| panic!("no {s} in {a:?}"))
+    };
     let sep = if cfg!(windows) { ";" } else { ":" };
     let cp: Vec<String> = a[at("-cp") + 1].split(sep).map(String::from).collect();
     // Library paths are Mojang's, `/` and all (`mojang::relative`): Windows takes them.

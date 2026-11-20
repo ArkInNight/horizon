@@ -2756,24 +2756,57 @@ fn java_player_with(
     store: &dyn SecretStore,
     accounts: &mut Accounts,
 ) -> Result<crate::java_launch::Player, String> {
-    let pass = launch(ep, client_id, store, accounts).map_err(|e| e.to_string())?;
+    let pass = launch(ep, client_id, store, accounts);
     let kept = || {
         let order = accounts.selected().into_iter().chain(&accounts.accounts);
         order
             .into_iter()
             .find_map(|a| Some((a.clone(), secrets_in(store, &a.uuid).filter(|s| s.owns)?)))
     };
-    let (account, secrets) = pass
-        .session
-        .or(pass.owner)
-        .or_else(kept)
-        .ok_or_else(|| NoOwner::default().to_string())?;
-    Ok(crate::java_launch::Player {
-        name: account.name,
-        uuid: account.uuid,
-        token: secrets.minecraft_token,
-        xuid: secrets.xuid.unwrap_or_default(),
-    })
+    let player = pass.ok().and_then(|pass| {
+        let (account, secrets) = pass.session.or(pass.owner).or_else(kept)?;
+        Some(crate::java_launch::Player {
+            name: account.name,
+            uuid: account.uuid,
+            token: secrets.minecraft_token,
+            xuid: secrets.xuid.unwrap_or_default(),
+            offline: false,
+        })
+    });
+    if let Some(player) = player {
+        return Ok(player);
+    }
+    // With the gate open a Java instance plays offline too, as the chosen offline name (or the
+    // game's own name), with the UUID a vanilla offline-mode server gives that name.
+    if GATE_OPEN {
+        return Ok(offline_java_player(accounts));
+    }
+    Err(NoOwner::default().to_string())
+}
+
+/// A Java player with no Microsoft account: the offline name that plays, else the first kept one,
+/// else the game's own name. No token is sent; `java_launch` starts the game as a legacy player.
+fn offline_java_player(accounts: &Accounts) -> crate::java_launch::Player {
+    let name = accounts
+        .name_arg()
+        .or_else(|| accounts.offline.first().map(String::as_str))
+        .unwrap_or("Player");
+    let u = horizon_platform::protocol::offline_uuid(name);
+    let h = format!("{u:032x}");
+    crate::java_launch::Player {
+        name: name.to_string(),
+        uuid: format!(
+            "{}-{}-{}-{}-{}",
+            &h[..8],
+            &h[8..12],
+            &h[12..16],
+            &h[16..20],
+            &h[20..]
+        ),
+        token: "0".into(),
+        xuid: String::new(),
+        offline: true,
+    }
 }
 
 #[cfg(test)]

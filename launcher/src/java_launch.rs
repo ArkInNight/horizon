@@ -14,12 +14,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Who plays: the account's name, UUID, Minecraft access token and Xbox user id.
+/// Who plays: the account's name, UUID, Minecraft access token and Xbox user id. `offline` names
+/// a player with no Microsoft session: the game gets an offline name/UUID and no MSA token.
 pub struct Player {
     pub name: String,
     pub uuid: String,
     pub token: String,
     pub xuid: String,
+    pub offline: bool,
 }
 
 impl std::fmt::Debug for Player {
@@ -374,11 +376,21 @@ pub fn command(version: &Value, launch: &Launch) -> Result<Command, String> {
     let vars: HashMap<&str, String> = HashMap::from([
         ("auth_player_name", p.name.clone()),
         ("auth_uuid", p.uuid.clone()),
-        ("auth_access_token", p.token.clone()),
-        ("auth_session", format!("token:{}:{}", p.token, p.uuid)),
+        (
+            "auth_access_token",
+            if p.offline { "0" } else { &p.token }.to_string(),
+        ),
+        (
+            "auth_session",
+            if p.offline {
+                format!("token:0:{}", p.uuid)
+            } else {
+                format!("token:{}:{}", p.token, p.uuid)
+            },
+        ),
         ("auth_xuid", p.xuid.clone()),
         ("clientid", String::new()),
-        ("user_type", "msa".into()),
+        ("user_type", if p.offline { "legacy" } else { "msa" }.into()),
         ("user_properties", "{}".into()),
         ("version_name", id.to_string()),
         (
