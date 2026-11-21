@@ -57,7 +57,9 @@ mod spawn_info;
 pub(super) mod terrain;
 use advancements::AdvancementOwners;
 use chat::yellow_names;
-pub use pending_move::{Accepted, Hearing, PendingMove};
+pub use pending_move::{
+    Accepted, Hearing, MOVE_PACKET_BUDGET, MOVE_PACKET_QUEUE, MovePacket, PendingMove,
+};
 use raw_inbox::{DeferredPayload, PacketDrain, yield_raw};
 pub mod game_event {
     pub const NO_RESPAWN_BLOCK_AVAILABLE: u8 = 0;
@@ -185,6 +187,15 @@ pub enum HostEvent {
     ),
     /// A changed movement report is held for the game to rule on ([`Hub::resolve_move`]).
     PlayerMove(u32),
+    /// A validated movement packet, whether or not it changes anything (`player_move_packet`).
+    PlayerMovePacket {
+        conn: u32,
+        to: [f64; 3],
+        to_rotation: [f32; 2],
+        on_ground: bool,
+        has_position: bool,
+        has_rotation: bool,
+    },
     /// An accepted position started a jump, before later gameplay packets.
     Jump {
         conn: u32,
@@ -209,6 +220,11 @@ pub enum HostEvent {
     Input {
         conn: u32,
         flags: i32,
+    },
+    /// A loaded guest's client answered a ping (`ServerboundPongPacket`) numbered `id`.
+    Pong {
+        conn: u32,
+        id: i32,
     },
     /// A guest was kicked, with the reason rendered by the hub.
     Kicked {
@@ -349,6 +365,9 @@ pub struct Hub {
     pending_kicks: Vec<HostEvent>,
     /// A native mod listens to `player_move`: a changed report waits for the game ([`pending_move`]).
     pub moves_listened: bool,
+    /// A native mod listens to `player_move_packet`: every validated movement packet is told to
+    /// the game.
+    pub move_packets_listened: bool,
     /// `[transfer]` on (a dedicated server's `--transfers`): the players a proxy
     /// said would arrive (`player-expect`). None while it is off.
     pub transfers: Option<super::arrivals::Transfers>,
@@ -366,6 +385,9 @@ pub struct Hub {
     /// Whether any native mod is loaded: `Input` and `Sneak` events only exist for them, so
     /// the hub queues none otherwise. The game sets it before each poll.
     pub mods_loaded: bool,
+    /// Whether a mod listens for `player_pong`: only then is a pong answering a ping queued. The
+    /// game sets it before each poll.
+    pub pong_listened: bool,
     /// Players a native mod hid (`native_hide_player`), by UUID, on or off:
     /// only players of at least that permission level see them, in the
     /// player list, the world and their joining and leaving.
@@ -855,6 +877,7 @@ impl Hub {
             deferred_payloads: Default::default(),
             pending_kicks: Vec::new(),
             moves_listened: false,
+            move_packets_listened: false,
             transfers: None,
             native_tracking: Vec::new(),
             attachment_snapshots: Vec::new(),
@@ -862,6 +885,7 @@ impl Hub {
             native_advancement_grants: Vec::new(),
             native_reload_pending: false,
             mods_loaded: false,
+            pong_listened: false,
             hidden: Default::default(),
             refreshing: Vec::new(),
             teams: Vec::new(),
@@ -4252,7 +4276,16 @@ impl Hub {
                             }
                         });
                         let rot = (p.yaw, p.pitch);
-                        self.position_change(i, at, rot, 0, Hearing::Confirmation, ctx, events);
+                        self.position_change(
+                            i,
+                            at,
+                            rot,
+                            0,
+                            (true, true),
+                            Hearing::Confirmation,
+                            ctx,
+                            events,
+                        );
                     }
                 }
                 // handlePlayerAbilities: the client flies only if it may.
@@ -4308,7 +4341,22 @@ impl Hub {
                         g.max_unacknowledged = 10;
                     });
                 }
-                S::Pong(p) => self.anticheat_pong(i, p.id),
+                S::Pong(p) => {
+                    self.anticheat_pong(i, p.id);
+                    // The event only tells the mods, and only of an answer to a ping the server
+                    // sent (used up by it): nothing is queued for the rest, or with no listener.
+                    // Without a listener the ledger is still kept, so one listening later is not
+                    // fed stale pings.
+                    let answers_a_ping = self.guests.get(i).is_some_and(|g| {
+                        g.pings
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .answered(p.id, std::time::Instant::now())
+                    });
+                    if self.pong_listened && answers_a_ping {
+                        events.push(HostEvent::Pong { conn, id: p.id });
+                    }
+                }
                 // ServerGamePacketListenerImpl.handlePingRequest: echo on this connection.
                 S::PingRequest(p) => self.send_to(conn, &C::PongResponse(p)),
                 // handleAttack is the game's too: a move queued behind an attack would move
@@ -4551,6 +4599,7 @@ impl Hub {
         ctx: &TickCtx,
         events: &mut Vec<HostEvent>,
     ) {
+        let shape = (pos.is_some(), rot.is_some());
         let conn = self.guests[i].conn;
         // containsInvalidValues, on the packet's values (0 where it has none).
         let (yaw, pitch) = rot.unwrap_or_default();
@@ -4592,7 +4641,7 @@ impl Hub {
         }
         let to = pos.unwrap_or(g.position);
         let rot = rot.unwrap_or((g.yaw, g.pitch));
-        self.position_change(i, to, rot, flags, Hearing::Heard, ctx, events);
+        self.position_change(i, to, rot, flags, shape, Hearing::Heard, ctx, events);
     }
 
     /// ServerGamePacketListenerImpl.handlePlayerPositionChange.
@@ -4602,6 +4651,7 @@ impl Hub {
         to: [f64; 3],
         (yaw, pitch): (f32, f32),
         flags: u8,
+        (has_position, has_rotation): (bool, bool),
         hearing: Hearing,
         ctx: &TickCtx,
         events: &mut Vec<HostEvent>,
@@ -4683,6 +4733,7 @@ impl Hub {
         }
         // The anticheat's `ground`: a claim of the ground with nothing to
         // stand on is dropped (no-fall, walking on water).
+        let client_on_ground = flags & 1 != 0;
         let (mut flags, mut corrected) = (flags, false);
         if flags & 1 != 0 && self.anticheat.is_some() {
             match self.anticheat_ground(i, to, stands, ctx, events) {
@@ -4727,6 +4778,9 @@ impl Hub {
             flags,
             stands,
             floating,
+            on_ground: client_on_ground,
+            has_position,
+            has_rotation,
         };
         self.accept_move(i, accepted, hearing, events);
     }
@@ -5564,6 +5618,7 @@ mod tests {
     mod pending_move_bound_tests;
     mod pending_move_scope_tests;
     mod pending_move_tests;
+    mod pong_tests;
     mod skin_outer_layer_tests;
     mod sound_tests;
     mod terrain_send_bench;
