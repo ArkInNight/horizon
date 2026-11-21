@@ -23,9 +23,9 @@ jobs:
     # Our checks runners (label horizon-checks, docs/ci-runners.md); SELF_HOSTED_CI=light or off: GitHub's. A fork's
     # pull request sees no repository variable, so it always runs on GitHub's (it would wait for the CI VPS when it is down).
     runs-on: >-
-      ${{ vars.SELF_HOSTED_CI != 'off' && vars.SELF_HOSTED_CI != 'light' &&
+      ${{ vars.CI_RUNNER == '' && vars.SELF_HOSTED_CI != 'off' && vars.SELF_HOSTED_CI != 'light' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-      fromJSON('["self-hosted", "linux", "horizon-checks"]') || 'blacksmith-4vcpu-ubuntu-2404' }}
+      fromJSON('["self-hosted", "linux", "horizon-checks"]') || vars.CI_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     defaults:
       run:
