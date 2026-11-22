@@ -64,13 +64,17 @@ struct State {
     verify: bool,
     /// Last rendered verification tally: correct / wrong block / missing / extra.
     verify_tally: [usize; 4],
+    /// Translation applied to every region origin so the build can be moved.
+    offset: [i32; 3],
+    /// Whether the first load has been anchored near the player.
+    anchored: bool,
 }
 
 const SCREEN_ID: &str = "ghost_litematic";
 const ROW_H: f32 = 14.0;
 const VISIBLE_ROWS: usize = 10;
 const LIST_X: f32 = 20.0;
-const LIST_Y: f32 = 92.0;
+const LIST_Y: f32 = 128.0;
 const LIST_W: f32 = 300.0;
 
 struct ConfigUi {
@@ -87,6 +91,12 @@ struct ConfigUi {
     easy: WidgetId,
     auto: WidgetId,
     verify: WidgetId,
+    nx: WidgetId,
+    px: WidgetId,
+    ny: WidgetId,
+    py: WidgetId,
+    nz: WidgetId,
+    pz: WidgetId,
     rows: Vec<String>,
     offset: usize,
 }
@@ -109,6 +119,15 @@ impl ConfigUi {
         let auto = button(&mut widgets, 92.0, 68.0, "Auto");
         let verify = button(&mut widgets, 164.0, 68.0, "Verify");
         let close = button(&mut widgets, 236.0, 68.0, "Close");
+        let small = |widgets: &mut Widgets, x: f32, label: &'static str| {
+            widgets.add_button(Button::new([x, 96.0, 44.0, 20.0], Text::literal(label)))
+        };
+        let nx = small(&mut widgets, 20.0, "X-");
+        let px = small(&mut widgets, 68.0, "X+");
+        let ny = small(&mut widgets, 116.0, "Y-");
+        let py = small(&mut widgets, 164.0, "Y+");
+        let nz = small(&mut widgets, 212.0, "Z-");
+        let pz = small(&mut widgets, 260.0, "Z+");
 
         Self {
             widgets,
@@ -124,6 +143,12 @@ impl ConfigUi {
             easy,
             auto,
             verify,
+            nx,
+            px,
+            ny,
+            py,
+            nz,
+            pz,
             rows: list_schematics(host),
             offset: 0,
         }
@@ -230,6 +255,18 @@ impl Ghost {
                     state.easy_place ^= true;
                 } else if id == ui.verify {
                     state.verify ^= true;
+                } else if id == ui.nx {
+                    state.offset[0] -= 1;
+                } else if id == ui.px {
+                    state.offset[0] += 1;
+                } else if id == ui.ny {
+                    state.offset[1] -= 1;
+                } else if id == ui.py {
+                    state.offset[1] += 1;
+                } else if id == ui.nz {
+                    state.offset[2] -= 1;
+                } else if id == ui.pz {
+                    state.offset[2] += 1;
                 } else if id == ui.auto {
                     state.auto ^= true;
                     if state.auto {
@@ -273,15 +310,28 @@ impl Ghost {
 #[mod_api::horizon_mod]
 impl Hooks for Ghost {
     fn input_key(&self, host: &mut dyn ClientHost, event: &mut InputKeyEvent<'_>) {
-        if event.action != KeyAction::Press {
+        if event.action != KeyAction::Press || event.modifiers & 4 == 0 {
+            // Every binding is Alt-modified so it cannot collide with vanilla keys.
             return;
         }
         let mut state = self.state.lock().unwrap();
+        // Alt + arrows / PageUp-Down move the whole schematic. With Shift, move 16 blocks.
+        let step = if event.modifiers & 1 != 0 { 16 } else { 1 };
+        match event.key {
+            "key.keyboard.left" => state.offset[0] -= step,
+            "key.keyboard.right" => state.offset[0] += step,
+            "key.keyboard.up" => state.offset[2] += step,
+            "key.keyboard.down" => state.offset[2] -= step,
+            "key.keyboard.page.up" => state.offset[1] += step,
+            "key.keyboard.page.down" => state.offset[1] -= step,
+            _ => {}
+        }
         if event.key == "key.keyboard.b" && state.easy_place {
             let schematic = state.schematic.clone();
             if let Some(schematic) = schematic {
+                let offset = state.offset;
                 drop(state);
-                place_next(host, &schematic);
+                place_next(host, &schematic, offset);
             }
             return;
         }
@@ -337,9 +387,10 @@ impl Hooks for Ghost {
         let Some(schematic) = state.schematic.clone() else {
             return;
         };
+        let offset = state.offset;
         state.last_place = Some(now);
         drop(state);
-        if place_next(host, &schematic) {
+        if place_next(host, &schematic, offset) {
             return;
         }
         let mut state = self.state.lock().unwrap();
@@ -371,7 +422,7 @@ impl Hooks for Ghost {
         } else if !state.visible {
             (
                 "Litematic ghost: OFF".to_string(),
-                "Press G to show, L to reload build.litematic".to_string(),
+                "Press Alt+G to show, Alt+L to reload".to_string(),
             )
         } else if let Some(schematic) = &state.schematic {
             (
@@ -381,7 +432,7 @@ impl Hooks for Ghost {
                     schematic.regions.len()
                 ),
                 format!(
-                    "G: hide  L: reload  E: easy-place {}  B: next  T: auto {}",
+                    "Alt+G hide  Alt+L reload  Alt+E easy {}  Alt+B next  Alt+T auto {}",
                     if state.easy_place { "on" } else { "off" },
                     if state.auto { "on" } else { "off" }
                 ),
@@ -404,7 +455,7 @@ impl Hooks for Ghost {
         };
         event.draw.text(&title, [8.0, 8.0], 0xFFFFFFFF, true);
         event.draw.text(
-            &format!("{layers}  [O all  P single  H follow  R range  [ ] layer  -/= thickness]"),
+            &format!("{layers}  [Alt+O/P/H/R layers  Alt+[ ] layer  Alt+-/= thickness]"),
             [8.0, 22.0],
             0xFFFFC840,
             true,
@@ -444,7 +495,29 @@ impl Hooks for Ghost {
                 state.attempted = true;
                 let file = state.file.clone();
                 match load(host, file.as_deref()) {
-                    Ok(schematic) => state.schematic = Some(schematic),
+                    Ok(schematic) => {
+                        // Anchor the first load near the player instead of the file's saved Y.
+                        if !state.anchored {
+                            if let (Some(player), Some(first)) =
+                                (host.local_player(), schematic.regions.first())
+                            {
+                                if let Some(eye) = player.entity().eye_position(host) {
+                                    let feet = [
+                                        eye[0].floor() as i32,
+                                        (eye[1] - 1.6).floor() as i32,
+                                        eye[2].floor() as i32,
+                                    ];
+                                    state.offset = [
+                                        feet[0] - first.origin[0] - first.size[0] / 2,
+                                        feet[1] - first.origin[1],
+                                        feet[2] - first.origin[2] - first.size[2] / 2,
+                                    ];
+                                    state.anchored = true;
+                                }
+                            }
+                        }
+                        state.schematic = Some(schematic);
+                    }
                     Err(error) => state.error = Some(error),
                 }
             }
@@ -463,10 +536,11 @@ impl Hooks for Ghost {
         let mut outline = Vec::new();
         let mut tally = [0usize; 4];
         for region in &schematic.regions {
+            let origin = world_origin(region, state.offset);
             let center = [
-                region.origin[0] as f64 + region.size[0] as f64 / 2.0,
-                region.origin[1] as f64 + region.size[1] as f64 / 2.0,
-                region.origin[2] as f64 + region.size[2] as f64 / 2.0,
+                origin[0] as f64 + region.size[0] as f64 / 2.0,
+                origin[1] as f64 + region.size[1] as f64 / 2.0,
+                origin[2] as f64 + region.size[2] as f64 / 2.0,
             ];
             if distance_squared(center, camera) > (DRAW_DISTANCE * 2.0).powi(2) {
                 continue;
@@ -474,9 +548,9 @@ impl Hooks for Ghost {
             for placed in &region.quads {
                 let shown = match state.layers {
                     Layers::All => true,
-                    Layers::Single => placed.pos[1] == region.origin[1] + state.center,
-                    Layers::Range => (region.origin[1] + state.center - state.half
-                        ..=region.origin[1] + state.center + state.half)
+                    Layers::Single => placed.pos[1] == origin[1] + state.center,
+                    Layers::Range => (origin[1] + state.center - state.half
+                        ..=origin[1] + state.center + state.half)
                         .contains(&placed.pos[1]),
                     Layers::Follow => placed.pos[1] == player_y,
                 };
@@ -508,11 +582,38 @@ impl Hooks for Ghost {
                         }
                     }
                 }
-                quads.push(WorldQuad::new(
-                    placed.quad.corners,
-                    color,
-                    placed.quad.depth,
-                ));
+                // Three shaded faces read as a block, not a flat tile on the ground.
+                if quads.len() + 3 <= MAX_QUADS {
+                    let wx = placed.pos[0] as f64;
+                    let wy = placed.pos[1] as f64;
+                    let wz = placed.pos[2] as f64;
+                    let inset = 0.49;
+                    quads.push(WorldQuad::new(
+                        placed.quad.corners,
+                        shade(color, 100),
+                        placed.quad.depth,
+                    ));
+                    quads.push(WorldQuad::new(
+                        [
+                            [wx + inset, wy + 0.01, wz - inset],
+                            [wx + inset, wy + 0.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz - inset],
+                        ],
+                        shade(color, 65),
+                        placed.quad.depth,
+                    ));
+                    quads.push(WorldQuad::new(
+                        [
+                            [wx - inset, wy + 0.01, wz + inset],
+                            [wx + inset, wy + 0.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz + inset],
+                            [wx - inset, wy + 1.01, wz + inset],
+                        ],
+                        shade(color, 50),
+                        placed.quad.depth,
+                    ));
+                }
             }
             for line in &region.outline {
                 if outline.len() < 512 {
@@ -533,7 +634,7 @@ impl Hooks for Ghost {
                         (y, y)
                     }
                     Layers::Range => (state.center - state.half, state.center + state.half),
-                    Layers::Follow => (player_y - region.origin[1], player_y - region.origin[1]),
+                    Layers::Follow => (player_y - origin[1], player_y - origin[1]),
                 };
                 let y_from = y_from.max(0).min(region.size[1] - 1);
                 let y_to = y_to.max(0).min(region.size[1] - 1);
@@ -544,11 +645,7 @@ impl Hooks for Ghost {
                             if quads.len() == MAX_QUADS {
                                 break;
                             }
-                            let pos = [
-                                region.origin[0] + x,
-                                region.origin[1] + y,
-                                region.origin[2] + z,
-                            ];
+                            let pos = [origin[0] + x, origin[1] + y, origin[2] + z];
                             if region.targets.contains(&pos) {
                                 continue;
                             }
@@ -623,10 +720,10 @@ impl Hooks for Ghost {
         let layer = self.state.lock().unwrap();
         draw.text(
             &format!(
-                "Mode: {:?}   layer {}   range +/-{}   easy {}   auto {}",
-                layer.layers, layer.center, layer.half, layer.easy_place, layer.auto
+                "Mode: {:?}   layer {}   range +/-{}   easy {}   auto {}   offset {:?}",
+                layer.layers, layer.center, layer.half, layer.easy_place, layer.auto, layer.offset
             ),
-            [20.0, 88.0 + VISIBLE_ROWS as f32 * ROW_H],
+            [20.0, LIST_Y + VISIBLE_ROWS as f32 * ROW_H + 2.0],
             0xFFB0B0B0,
             true,
         );
@@ -721,10 +818,25 @@ fn distance_squared(a: [f64; 3], b: [f64; 3]) -> f64 {
     (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
 }
 
+/// Darken an ARGB colour for side faces, keeping alpha intact.
+fn shade(argb: u32, percent: u32) -> u32 {
+    let channel = |shift: u32| ((argb >> shift) & 0xFF) * percent / 100;
+    (argb & 0xFF00_0000) | (channel(16) << 16) | (channel(8) << 8) | channel(0)
+}
+
+/// The region's origin after the player's translation.
+fn world_origin(region: &Region, offset: [i32; 3]) -> [i32; 3] {
+    [
+        region.origin[0] + offset[0],
+        region.origin[1] + offset[1],
+        region.origin[2] + offset[2],
+    ]
+}
+
 /// Place one ghost block through ordinary gameplay: select its item, aim at the top of the
 /// supporting block and click `key.use`. The game then builds its own packet, with the correct
 /// sequence number and all vanilla reach/cooldown checks.
-fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) -> bool {
+fn place_next(host: &mut dyn ClientHost, schematic: &Schematic, offset: [i32; 3]) -> bool {
     let Some(player) = host.local_player() else {
         return false;
     };
@@ -738,9 +850,14 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) -> bool {
     let mut best: Option<(&PlacedQuad, (i32, f64))> = None;
     for region in &schematic.regions {
         for cell in &region.quads {
+            let pos = [
+                cell.pos[0] + offset[0],
+                cell.pos[1] + offset[1],
+                cell.pos[2] + offset[2],
+            ];
             // Already correct: skip it, so an auto-place loop never repeats a cell.
             if level
-                .block_state(host, cell.pos)
+                .block_state(host, pos)
                 .and_then(|state| host.block_state_string(state))
                 .as_deref()
                 == Some(cell.state.as_str())
@@ -749,9 +866,9 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) -> bool {
             }
             let distance = distance_squared(
                 [
-                    cell.pos[0] as f64 + 0.5,
-                    cell.pos[1] as f64 + 0.5,
-                    cell.pos[2] as f64 + 0.5,
+                    pos[0] as f64 + 0.5,
+                    pos[1] as f64 + 0.5,
+                    pos[2] as f64 + 0.5,
                 ],
                 eye,
             );
@@ -759,7 +876,7 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) -> bool {
                 continue;
             }
             // Only a cell whose supporting block is real can be placed right now.
-            let support = [cell.pos[0], cell.pos[1] - 1, cell.pos[2]];
+            let support = [pos[0], pos[1] - 1, pos[2]];
             let supported = level
                 .block_state(host, support)
                 .and_then(|state| host.block_state_string(state))
@@ -768,7 +885,7 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) -> bool {
                 continue;
             }
             // Bottom-up first, nearest first within a layer.
-            let rank = (cell.pos[1], distance);
+            let rank = (pos[1], distance);
             if best.as_ref().is_none_or(|(_, seen)| &rank < seen) {
                 best = Some((cell, rank));
             }
@@ -787,10 +904,15 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) -> bool {
     let _ = host.select_hotbar_slot(slot);
 
     // Aim at the top face of the supporting block (one below the ghost cell).
+    let pos = [
+        cell.pos[0] + offset[0],
+        cell.pos[1] + offset[1],
+        cell.pos[2] + offset[2],
+    ];
     let aim = [
-        cell.pos[0] as f64 + 0.5,
-        cell.pos[1] as f64 - 0.05,
-        cell.pos[2] as f64 + 0.5,
+        pos[0] as f64 + 0.5,
+        pos[1] as f64 - 0.05,
+        pos[2] as f64 + 0.5,
     ];
     let (yaw, pitch) = look_at(eye, aim);
     let _ = host.set_local_rotation(yaw, pitch);

@@ -10,14 +10,16 @@ public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_l
   or `build.schem` (Sponge v1–3, palette + LEB128 varint indices) from the mod's data folder.
 - One translucent quad per non-air block, plus a wireframe box per region/schematic.
 - Camera-distance culling and the API's 4,096-quad batch cap.
-- Layer / slice controls:
+- All bindings use **Alt** to avoid vanilla conflicts. Layer / slice controls:
   - `O` — all layers
   - `P` — single layer
   - `H` — slice that follows the player's feet
   - `R` — a range of layers around the current one
   - `[` / `]` — move the current layer down / up
   - `-` / `=` — shrink / grow the range thickness
-- `G` toggles the overlay, `L` reloads the file, `C` opens the config screen, `V` toggles verifier colours. The HUD shows the active mode, layer and verify tally.
+- `Alt+G` toggles the overlay, `Alt+L` reloads, `Alt+C` opens the config screen, `Alt+V` toggles verifier colours. The HUD shows the active mode, layer, offset and verify tally.
+- `Alt+arrows` move the schematic on X/Z, `Alt+PageUp/PageDown` on Y (hold Shift for 16 blocks). The config screen has matching buttons.
+- The first load is anchored near the player, so test schematics no longer appear high in the sky.
 
 ## Not in this PoC
 
@@ -39,7 +41,7 @@ public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_l
    <game data>/horizon-mod-data/ghost_litematic/build.litematic
    ```
    or rename a `.schem` to `build.schem` in the same folder.
-3. Start the game, press `G`, then use the layer keys above.
+3. Start the game, press `Alt+G`, then use the Alt-modified keys above.
 
 Two small valid fixtures are included. Regenerate them with `python3 make_sample.py`:
 ```sh

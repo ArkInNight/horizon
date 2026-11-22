@@ -18,6 +18,9 @@ Status rows: **Done**, **Next**, **Later**, **Blocked**. Effort is a rough one-p
 | 0.5.0 | Config screen | `C` opens a UI: pick a schematic file, layer modes, easy/auto toggles. |
 | 0.6.0 | Verifier overlay | `V` tints correct / wrong / missing cells and shows a tally. |
 | 0.7.0 | Extra-block detection | Reverse diff marks world blocks not in the schematic in magenta. |
+| 0.8.0 | Alt-only bindings | No more collisions with vanilla keys. |
+| 0.8.0 | Ghost cube rendering | Three shaded faces per block instead of one flat tile. |
+| 0.8.0 | Move / anchor schematic | `Alt+arrows` and screen buttons; first load anchored near the player. |
 
 ## Next
 

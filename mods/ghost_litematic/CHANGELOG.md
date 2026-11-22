@@ -4,6 +4,21 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-22
+
+### Changed
+- **All mod bindings now require Alt**, so they no longer collide with vanilla controls.
+  - `Alt+G/L/C/V/E/B/T` and `Alt+O/P/H/R`, `Alt+[`/`]`, `Alt+-`/`=`.
+- The ghost is drawn as three shaded faces per block instead of a single flat top tile.
+- The first schematic load is **anchored near the player** instead of staying at the file's saved
+  Y coordinate.
+
+### Added
+- Schematic translation: `Alt+arrow keys` move X/Z, `Alt+PageUp/PageDown` move Y;
+  hold Shift to move 16 blocks at a time. The config screen has `X-/X+/Y-/Y+/Z-/Z+` buttons
+  and shows the current offset.
+- Verifier's extra-block colour is magenta and the tally includes `extra`.
+
 ## [0.7.0] — 2026-11-22
 
 ### Added
