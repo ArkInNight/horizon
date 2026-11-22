@@ -16,6 +16,7 @@ cd "$WORK"
 # Scaffold a wasm mod: this fetches the SDK for $SDK into .horizon/sdk/.
 cargo run --locked --manifest-path "$ROOT/Cargo.toml" -p cargo-horizon-mod -- \
   new ghost-wasm-build --template wasm --horizon "$SDK"
+cd "$WORK/ghost-wasm-build"
 
 cp "$HERE/src/lib.rs" src/lib.rs
 cat > horizon-mod.toml <<'TOML'

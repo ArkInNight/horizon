@@ -42,18 +42,26 @@ struct State {
     center: i32,
     /// Half-height of a Range view.
     half: i32,
+    /// Whether B tries to place the next ghost block through normal gameplay.
+    easy_place: bool,
 }
 
+#[derive(Clone)]
 struct Schematic {
     regions: Vec<Region>,
     blocks: usize,
 }
 
+#[derive(Clone)]
 struct PlacedQuad {
-    y: i32,
+    /// The absolute target cell this ghost stands for.
+    pos: [i32; 3],
+    /// The block state a click should place here (NBT `Name` + `Properties`).
+    state: String,
     quad: WorldQuad,
 }
 
+#[derive(Clone)]
 struct Region {
     #[allow(dead_code)]
     name: String,
@@ -65,13 +73,22 @@ struct Region {
 
 #[mod_api::horizon_mod]
 impl Hooks for Ghost {
-    fn input_key(&self, _host: &mut dyn ClientHost, event: &mut InputKeyEvent<'_>) {
+    fn input_key(&self, host: &mut dyn ClientHost, event: &mut InputKeyEvent<'_>) {
         if event.action != KeyAction::Press {
             return;
         }
         let mut state = self.state.lock().unwrap();
+        if event.key == "key.keyboard.b" && state.easy_place {
+            let schematic = state.schematic.clone();
+            if let Some(schematic) = schematic {
+                drop(state);
+                place_next(host, &schematic);
+            }
+            return;
+        }
         match event.key {
             "key.keyboard.g" => state.visible ^= true,
+            "key.keyboard.e" => state.easy_place ^= true,
             "key.keyboard.l" => {
                 state.attempted = false;
                 state.schematic = None;
@@ -124,7 +141,10 @@ impl Hooks for Ghost {
                     schematic.blocks,
                     schematic.regions.len()
                 ),
-                "G: hide   L: reload".to_string(),
+                format!(
+                    "G: hide   L: reload   E: easy-place {}   B: place next",
+                    if state.easy_place { "on" } else { "off" }
+                ),
             )
         } else {
             (
@@ -194,11 +214,11 @@ impl Hooks for Ghost {
             for placed in &region.quads {
                 let shown = match state.layers {
                     Layers::All => true,
-                    Layers::Single => placed.y == region.origin[1] + state.center,
+                    Layers::Single => placed.pos[1] == region.origin[1] + state.center,
                     Layers::Range => (region.origin[1] + state.center - state.half
                         ..=region.origin[1] + state.center + state.half)
-                        .contains(&placed.y),
-                    Layers::Follow => placed.y == player_y,
+                        .contains(&placed.pos[1]),
+                    Layers::Follow => placed.pos[1] == player_y,
                 };
                 if !shown
                     || distance_squared(placed.quad.corners[0], camera) > DRAW_DISTANCE.powi(2)
@@ -230,6 +250,86 @@ impl Hooks for Ghost {
 
 fn distance_squared(a: [f64; 3], b: [f64; 3]) -> f64 {
     (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
+}
+
+/// Place one ghost block through ordinary gameplay: select its item, aim at the top of the
+/// supporting block and click `key.use`. The game then builds its own packet, with the correct
+/// sequence number and all vanilla reach/cooldown checks.
+fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) {
+    let Some(player) = host.local_player() else {
+        return;
+    };
+    let Some(eye) = player.entity().eye_position(host) else {
+        return;
+    };
+    let Some(level) = player.level(host) else {
+        return;
+    };
+
+    let mut best: Option<(&PlacedQuad, f64)> = None;
+    for region in &schematic.regions {
+        for cell in &region.quads {
+            let distance = distance_squared(
+                [
+                    cell.pos[0] as f64 + 0.5,
+                    cell.pos[1] as f64 + 0.5,
+                    cell.pos[2] as f64 + 0.5,
+                ],
+                eye,
+            );
+            if distance > 5.0f64.powi(2) {
+                continue;
+            }
+            // Only a cell whose supporting block is real can be placed right now.
+            let support = [cell.pos[0], cell.pos[1] - 1, cell.pos[2]];
+            let supported = level
+                .block_state(host, support)
+                .and_then(|state| host.block_state_string(state))
+                .is_some_and(|name| name != "minecraft:air");
+            if !supported {
+                continue;
+            }
+            if best.as_ref().is_none_or(|(_, seen)| distance < *seen) {
+                best = Some((cell, distance));
+            }
+        }
+    }
+    let Some((cell, _)) = best else {
+        return;
+    };
+
+    let wanted = host.block_state_id(&cell.state).map(|state| state.block());
+    let slot = player
+        .inventory(host)
+        .unwrap_or_default()
+        .iter()
+        .take(9)
+        .position(|stack| {
+            host.item_block(stack.item())
+                .is_some_and(|item| Some(item) == wanted)
+        });
+    let Some(slot) = slot else {
+        return;
+    };
+    let _ = host.select_hotbar_slot(slot as u8);
+
+    // Aim at the top face of the supporting block (one below the ghost cell).
+    let aim = [
+        cell.pos[0] as f64 + 0.5,
+        cell.pos[1] as f64 - 0.05,
+        cell.pos[2] as f64 + 0.5,
+    ];
+    let (yaw, pitch) = look_at(eye, aim);
+    let _ = host.set_local_rotation(yaw, pitch);
+    let _ = host.click_mapping("key.use");
+}
+
+/// Vanilla yaw/pitch for a view vector pointing from `eye` to `at`.
+fn look_at(eye: [f64; 3], at: [f64; 3]) -> (f32, f32) {
+    let (dx, dy, dz) = (at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]);
+    let yaw = mod_api::strict_math::atan2(-dx, dz).to_degrees() as f32;
+    let pitch = mod_api::strict_math::atan2(-dy, dx.hypot(dz)).to_degrees() as f32;
+    (yaw, pitch)
 }
 
 /// Read `build.litematic` (or `build.schem`) from this mod's data files and decode it.
@@ -362,7 +462,8 @@ fn parse_region(name: String, tag: &Tag) -> Result<Region, String> {
         let top = wy + 1.01;
         let color = color_for(&block);
         quads.push(PlacedQuad {
-            y: wy as i32,
+            pos: [wx as i32, wy as i32, wz as i32],
+            state: state_string(entry),
             quad: WorldQuad::new(
                 [
                     [wx - inset, top, wz - inset],
@@ -494,7 +595,8 @@ fn parse_schem(tag: &Tag) -> Result<Region, String> {
         let inset = 0.49;
         let top = wy + 1.01;
         quads.push(PlacedQuad {
-            y: wy as i32,
+            pos: [wx as i32, wy as i32, wz as i32],
+            state: state.to_string(),
             quad: WorldQuad::new(
                 [
                     [wx - inset, top, wz - inset],
@@ -605,6 +707,36 @@ fn unpack(states: &[i64], bits: u32, index: usize) -> usize {
         return 0;
     };
     (((*value as u64) >> shift) as usize) & ((1usize << bits) - 1)
+}
+
+/// `minecraft:oak_stairs[facing=east,waterlogged=false]` — the form `block_state_id` parses.
+fn state_string(entry: &Tag) -> String {
+    let Some(Tag::String(name)) = entry.get("Name") else {
+        return "minecraft:air".into();
+    };
+    let name = name.to_string_lossy();
+    let name = if name.contains(':') {
+        name
+    } else {
+        format!("minecraft:{name}")
+    };
+    let mut properties = Vec::new();
+    if let Some(Tag::Compound(props)) = entry.get("Properties") {
+        for (key, value) in props {
+            if let Tag::String(value) = value {
+                properties.push(format!(
+                    "{}={}",
+                    key.to_string_lossy(),
+                    value.to_string_lossy()
+                ));
+            }
+        }
+    }
+    if properties.is_empty() {
+        name
+    } else {
+        format!("{}[{}]", name, properties.join(","))
+    }
 }
 
 /// A stable translucent colour per block so different materials are distinguishable.
