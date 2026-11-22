@@ -4,6 +4,13 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-22
+
+### Added
+- Verifier overlay: `V` (or the `Verify` button in the config screen) tints ghost cells by how
+  they compare with the live world — green = correct, red = wrong block, orange = missing.
+  The HUD shows a correct / wrong / missing tally for the currently visible cells.
+
 ## [0.5.0] — 2026-11-22
 
 ### Added

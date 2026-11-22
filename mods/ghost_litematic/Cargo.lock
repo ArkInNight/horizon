@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-litematic"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "flate2",
  "horizon-mod-api",

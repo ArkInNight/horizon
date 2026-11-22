@@ -4,7 +4,7 @@
 //! (`horizon-mod-data/ghost_litematic/`), press `G` to toggle the ghost and `L` to reload.
 //! The overlay is drawn with the
 //! public client render API only; no mixins and no engine changes are used.
-use mod_api::client::widgets::{Button, Outcome, TextField, WidgetId, Widgets};
+use mod_api::client::widgets::{Button, Outcome, WidgetId, Widgets};
 use mod_api::{
     CONFIG_LIST_MAX, ClientHost, ClientTickPostEvent, ClientTickPreEvent, ConfigEntryKind,
     ConfigPath, Flow, GuiLayer, GuiLayerDrawEvent, GuiLayerPlacement, Hand, Hooks, InputKeyEvent,
@@ -59,6 +59,10 @@ struct State {
     auto_note: Option<String>,
     /// The schematic chosen in the config screen; None uses the default file names.
     file: Option<String>,
+    /// Whether to tint the ghost by match against the live world.
+    verify: bool,
+    /// Last rendered verification tally: correct / wrong block / missing.
+    verify_tally: [usize; 3],
 }
 
 const SCREEN_ID: &str = "ghost_litematic";
@@ -81,6 +85,7 @@ struct ConfigUi {
     thick: WidgetId,
     easy: WidgetId,
     auto: WidgetId,
+    verify: WidgetId,
     rows: Vec<String>,
     offset: usize,
 }
@@ -101,9 +106,9 @@ impl ConfigUi {
         let thick = button(&mut widgets, 236.0, 46.0, "Thin +");
         let easy = button(&mut widgets, 20.0, 68.0, "Easy");
         let auto = button(&mut widgets, 92.0, 68.0, "Auto");
+        let verify = button(&mut widgets, 164.0, 68.0, "Verify");
         let close = button(&mut widgets, 236.0, 68.0, "Close");
-        let _filter: WidgetId =
-            widgets.add_text_field(TextField::new([164.0, 68.0, 68.0, 20.0], 64));
+
         Self {
             widgets,
             close,
@@ -117,6 +122,7 @@ impl ConfigUi {
             thick,
             easy,
             auto,
+            verify,
             rows: list_schematics(host),
             offset: 0,
         }
@@ -219,6 +225,8 @@ impl Ghost {
                     state.half += 1;
                 } else if id == ui.easy {
                     state.easy_place ^= true;
+                } else if id == ui.verify {
+                    state.verify ^= true;
                 } else if id == ui.auto {
                     state.auto ^= true;
                     if state.auto {
@@ -281,6 +289,7 @@ impl Hooks for Ghost {
             }
             "key.keyboard.g" => state.visible ^= true,
             "key.keyboard.e" => state.easy_place ^= true,
+            "key.keyboard.v" => state.verify ^= true,
             "key.keyboard.t" => {
                 state.auto ^= true;
                 if state.auto {
@@ -401,6 +410,17 @@ impl Hooks for Ghost {
         if let Some(note) = &state.auto_note {
             event.draw.text(note, [8.0, 50.0], 0xFF80FF80, true);
         }
+        if state.verify {
+            event.draw.text(
+                &format!(
+                    "Verify: {} ok  {} wrong  {} missing",
+                    state.verify_tally[0], state.verify_tally[1], state.verify_tally[2]
+                ),
+                [8.0, 64.0],
+                0xFF80FF80,
+                true,
+            );
+        }
     }
 
     fn render_level_stage(&self, host: &dyn ClientHost, event: &mut RenderLevelStageEvent<'_>) {
@@ -424,16 +444,18 @@ impl Hooks for Ghost {
             }
         }
 
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let Some(schematic) = state.schematic.as_ref() else {
             return;
         };
+        let level = host.local_player().and_then(|player| player.level(host));
 
         let camera = event.view.camera;
         // The camera is the player's eye; feet are about 1.6 blocks lower.
         let player_y = (camera[1] - 1.6).floor() as i32;
         let mut quads = Vec::with_capacity(MAX_QUADS.min(1024));
         let mut outline = Vec::new();
+        let mut tally = [0usize; 3];
         for region in &schematic.regions {
             let center = [
                 region.origin[0] as f64 + region.size[0] as f64 / 2.0,
@@ -460,9 +482,29 @@ impl Hooks for Ghost {
                 if quads.len() == MAX_QUADS {
                     break;
                 }
+                let mut color = placed.quad.color;
+                if state.verify {
+                    let world = level
+                        .and_then(|level| level.block_state(host, placed.pos))
+                        .and_then(|block| host.block_state_string(block));
+                    match world.as_deref() {
+                        Some(name) if name == placed.state => {
+                            tally[0] += 1;
+                            color = 0x60_40_FF_40; // correct: green
+                        }
+                        Some(name) if name != "minecraft:air" => {
+                            tally[1] += 1;
+                            color = 0x60_40_40_FF; // wrong block: red
+                        }
+                        _ => {
+                            tally[2] += 1;
+                            color = 0x60_FF_C0_40; // missing: orange
+                        }
+                    }
+                }
                 quads.push(WorldQuad::new(
                     placed.quad.corners,
-                    placed.quad.color,
+                    color,
                     placed.quad.depth,
                 ));
             }
@@ -477,6 +519,9 @@ impl Hooks for Ghost {
         // Batches are atomic: either all of it draws or none does.
         let _ = event.draw.quads(&quads);
         let _ = event.draw.lines(&outline);
+        if state.verify {
+            state.verify_tally = tally;
+        }
     }
 
     fn client_tick_pre(&self, host: &mut dyn ClientHost, _event: &mut ClientTickPreEvent) {

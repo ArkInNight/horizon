@@ -17,7 +17,7 @@ public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_l
   - `R` — a range of layers around the current one
   - `[` / `]` — move the current layer down / up
   - `-` / `=` — shrink / grow the range thickness
-- `G` toggles the overlay, `L` reloads the file, `C` opens the config screen. The HUD shows the active mode and layer.
+- `G` toggles the overlay, `L` reloads the file, `C` opens the config screen, `V` toggles verifier colours. The HUD shows the active mode, layer and verify tally.
 
 ## Not in this PoC
 

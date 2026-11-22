@@ -16,12 +16,13 @@ Status rows: **Done**, **Next**, **Later**, **Blocked**. Effort is a rough one-p
 | 0.4.0 | Auto-place loop | `T` toggles a 250 ms bottom-up loop; stops when nothing is reachable. |
 | 0.4.0 | Robust hotbar matching | Scan literal slots 0..=8 and verify the held item; no dependence on compacted inventory indices. |
 | 0.5.0 | Config screen | `C` opens a UI: pick a schematic file, layer modes, easy/auto toggles. |
+| 0.6.0 | Verifier overlay | `V` tints correct / wrong / missing cells and shows a tally. |
 
 ## Next
 
 | Priority | Feature | Effort | Why |
 |---|---|---|---|
-| P1 | Verifier overlay | M | Compare world blocks with the schematic and tint matches / mismatches. |
+| P1 | Extra-block detection | M | Find world blocks inside the schematic bounds that are not in the target (reverse diff). |
 | P1 | Verifier overlay | M | Compare `level.block_state` with the schematic and tint matching / mismatched cells. |
 | P1 | Block-entity ghosts | M | Show chest/sign/beacon positions and labels from `TileEntities` / `BlockEntities`. |
 
