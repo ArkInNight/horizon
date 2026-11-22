@@ -4,6 +4,14 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-22
+
+### Added
+- Extra-block detection in verifier mode: real world blocks inside the schematic volume that the
+  schematic does not call for are drawn magenta and counted as `extra` in the HUD.
+- Each region caches the set of absolute target positions, so the reverse diff is a set lookup.
+- The extra scan follows the active layer (all / single / range / follow) to stay bounded.
+
 ## [0.6.0] — 2026-11-22
 
 ### Added

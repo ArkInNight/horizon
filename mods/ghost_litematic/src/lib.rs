@@ -13,6 +13,7 @@ use mod_api::{
     ScreenMouseButtonReleasedPreEvent, ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent,
     ScreenRenderPostEvent, Tag, Text, WorldDepth, WorldLine, WorldQuad,
 };
+use std::collections::HashSet;
 use std::io::Read;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,8 +62,8 @@ struct State {
     file: Option<String>,
     /// Whether to tint the ghost by match against the live world.
     verify: bool,
-    /// Last rendered verification tally: correct / wrong block / missing.
-    verify_tally: [usize; 3],
+    /// Last rendered verification tally: correct / wrong block / missing / extra.
+    verify_tally: [usize; 4],
 }
 
 const SCREEN_ID: &str = "ghost_litematic";
@@ -188,6 +189,8 @@ struct Region {
     origin: [i32; 3],
     size: [i32; 3],
     quads: Vec<PlacedQuad>,
+    /// Absolute positions the schematic says should be non-air (for reverse diff).
+    targets: HashSet<[i32; 3]>,
     outline: Vec<WorldLine>,
 }
 
@@ -413,8 +416,11 @@ impl Hooks for Ghost {
         if state.verify {
             event.draw.text(
                 &format!(
-                    "Verify: {} ok  {} wrong  {} missing",
-                    state.verify_tally[0], state.verify_tally[1], state.verify_tally[2]
+                    "Verify: {} ok  {} wrong  {} missing  {} extra",
+                    state.verify_tally[0],
+                    state.verify_tally[1],
+                    state.verify_tally[2],
+                    state.verify_tally[3]
                 ),
                 [8.0, 64.0],
                 0xFF80FF80,
@@ -455,7 +461,7 @@ impl Hooks for Ghost {
         let player_y = (camera[1] - 1.6).floor() as i32;
         let mut quads = Vec::with_capacity(MAX_QUADS.min(1024));
         let mut outline = Vec::new();
-        let mut tally = [0usize; 3];
+        let mut tally = [0usize; 4];
         for region in &schematic.regions {
             let center = [
                 region.origin[0] as f64 + region.size[0] as f64 / 2.0,
@@ -513,6 +519,72 @@ impl Hooks for Ghost {
                     outline.push(WorldLine::new(
                         line.from, line.to, line.color, line.width, line.depth,
                     ));
+                }
+            }
+            // Reverse diff: real world blocks inside the schematic volume that the
+            // schematic does not call for. Honour the active layer so the scan stays bounded.
+            if state.verify
+                && let Some(level) = level
+            {
+                let (y_from, y_to) = match state.layers {
+                    Layers::All => (0, region.size[1] - 1),
+                    Layers::Single => {
+                        let y = state.center;
+                        (y, y)
+                    }
+                    Layers::Range => (state.center - state.half, state.center + state.half),
+                    Layers::Follow => (player_y - region.origin[1], player_y - region.origin[1]),
+                };
+                let y_from = y_from.max(0).min(region.size[1] - 1);
+                let y_to = y_to.max(0).min(region.size[1] - 1);
+                let inset = 0.49;
+                for y in y_from..=y_to {
+                    for z in 0..region.size[2] {
+                        for x in 0..region.size[0] {
+                            if quads.len() == MAX_QUADS {
+                                break;
+                            }
+                            let pos = [
+                                region.origin[0] + x,
+                                region.origin[1] + y,
+                                region.origin[2] + z,
+                            ];
+                            if region.targets.contains(&pos) {
+                                continue;
+                            }
+                            let world = level
+                                .block_state(host, pos)
+                                .and_then(|block| host.block_state_string(block));
+                            if world.is_none_or(|name| name == "minecraft:air") {
+                                continue;
+                            }
+                            let distance = distance_squared(
+                                [
+                                    pos[0] as f64 + 0.5,
+                                    pos[1] as f64 + 0.5,
+                                    pos[2] as f64 + 0.5,
+                                ],
+                                camera,
+                            );
+                            if distance > DRAW_DISTANCE.powi(2) {
+                                continue;
+                            }
+                            tally[3] += 1;
+                            let wx = pos[0] as f64;
+                            let wy = pos[1] as f64;
+                            let wz = pos[2] as f64;
+                            quads.push(WorldQuad::new(
+                                [
+                                    [wx - inset, wy + 1.01, wz - inset],
+                                    [wx - inset, wy + 1.01, wz + inset],
+                                    [wx + inset, wy + 1.01, wz + inset],
+                                    [wx + inset, wy + 1.01, wz - inset],
+                                ],
+                                0x60_FF_40_FF, // extra block: magenta
+                                WorldDepth::Tested,
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -935,11 +1007,13 @@ fn parse_region(name: String, tag: &Tag) -> Result<Region, String> {
             WorldDepth::ThroughWalls,
         ));
     }
+    let targets = quads.iter().map(|cell| cell.pos).collect();
     Ok(Region {
         name,
         origin: position,
         size,
         quads,
+        targets,
         outline,
     })
 }
@@ -1067,11 +1141,13 @@ fn parse_schem(tag: &Tag) -> Result<Region, String> {
             WorldDepth::ThroughWalls,
         ));
     }
+    let targets = quads.iter().map(|cell| cell.pos).collect();
     Ok(Region {
         name: "schematic".into(),
         origin,
         size: [width as i32, height as i32, length as i32],
         quads,
+        targets,
         outline,
     })
 }
