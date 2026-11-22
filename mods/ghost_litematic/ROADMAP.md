@@ -13,13 +13,13 @@ Status rows: **Done**, **Next**, **Later**, **Blocked**. Effort is a rough one-p
 | 0.2.0 | `.schem` import | Sponge v1–3: palette + LEB128 varint indices, optional `Schematic` wrapper. |
 | 0.2.0 | Fixtures + build script | Valid `.litematic` and `.schem` samples; `build-wasm.sh` builds and installs the `.hmod`. |
 | 0.3.0 | Easy-place MVP | `E` enable, `B` place next reachable cell: hotbar match, aim at support, `key.use`. |
+| 0.4.0 | Auto-place loop | `T` toggles a 250 ms bottom-up loop; stops when nothing is reachable. |
+| 0.4.0 | Robust hotbar matching | Scan literal slots 0..=8 and verify the held item; no dependence on compacted inventory indices. |
 
 ## Next
 
 | Priority | Feature | Effort | Why |
 |---|---|---|---|
-| P0 | Auto-place loop | S | Repeated `B` bottom-up until nothing reachable remains; report skipped cells. |
-| P0 | Robust hotbar matching | S | The client's inventory read compacts empty slots; use `key.hotbar.N` or real slot numbers when available. |
 | P1 | Config screen | M | Malilib-style UI: pick file, toggle layers, per-region visibility, presets (`mod_screen_open` + `Widgets`). |
 | P1 | Verifier overlay | M | Compare `level.block_state` with the schematic and tint matching / mismatched cells. |
 | P1 | Block-entity ghosts | M | Show chest/sign/beacon positions and labels from `TileEntities` / `BlockEntities`. |

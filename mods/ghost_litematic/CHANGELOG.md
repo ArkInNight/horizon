@@ -4,6 +4,17 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-22
+
+### Added
+- Auto-place loop: `T` starts/stops placing one ghost block every 250 ms, bottom-up, and stops
+  automatically when nothing reachable is left. Uses `client_tick_post` and the game clock
+  (`ClientHost::millis`) for the cooldown.
+- Robust hotbar matching: scan literal slots 0..=8 with `select_hotbar_slot`, verify with
+  `PlayerRef::selected_slot` and `LivingRef::hand_item` instead of trusting the client's
+  compacted inventory list.
+- Cells already matching the target state are skipped, so the loop never repeats a block.
+
 ## [0.3.0] — 2026-11-22
 
 ### Added

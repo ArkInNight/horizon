@@ -5,9 +5,9 @@
 //! The overlay is drawn with the
 //! public client render API only; no mixins and no engine changes are used.
 use mod_api::{
-    ClientHost, ConfigPath, GuiLayer, GuiLayerDrawEvent, GuiLayerPlacement, Hooks, InputKeyEvent,
-    KeyAction, RegisterGuiLayersEvent, RenderLevelStage, RenderLevelStageEvent, Tag, WorldDepth,
-    WorldLine, WorldQuad,
+    ClientHost, ClientTickPostEvent, ConfigPath, GuiLayer, GuiLayerDrawEvent, GuiLayerPlacement,
+    Hand, Hooks, InputKeyEvent, KeyAction, LivingRef, RegisterGuiLayersEvent, RenderLevelStage,
+    RenderLevelStageEvent, Tag, WorldDepth, WorldLine, WorldQuad,
 };
 use std::io::Read;
 use std::sync::Mutex;
@@ -44,6 +44,12 @@ struct State {
     half: i32,
     /// Whether B tries to place the next ghost block through normal gameplay.
     easy_place: bool,
+    /// Whether T keeps placing bottom-up, one block every 250 ms.
+    auto: bool,
+    /// Game-clock millis of the last placement attempt.
+    last_place: Option<u64>,
+    /// A short status line about the last auto-place attempt.
+    auto_note: Option<String>,
 }
 
 #[derive(Clone)]
@@ -89,6 +95,16 @@ impl Hooks for Ghost {
         match event.key {
             "key.keyboard.g" => state.visible ^= true,
             "key.keyboard.e" => state.easy_place ^= true,
+            "key.keyboard.t" => {
+                state.auto ^= true;
+                if state.auto {
+                    state.easy_place = true;
+                    state.last_place = None;
+                    state.auto_note = None;
+                } else {
+                    state.auto_note = Some("auto-place stopped".into());
+                }
+            }
             "key.keyboard.l" => {
                 state.attempted = false;
                 state.schematic = None;
@@ -106,6 +122,31 @@ impl Hooks for Ghost {
             "key.keyboard.equal" if state.layers == Layers::Range => state.half += 1,
             _ => {}
         }
+    }
+
+    fn client_tick_post(&self, host: &mut dyn ClientHost, _event: &mut ClientTickPostEvent) {
+        let now = host.millis();
+        let mut state = self.state.lock().unwrap();
+        if !state.auto || !state.visible {
+            return;
+        }
+        if state
+            .last_place
+            .is_some_and(|at| now.saturating_sub(at) < 250)
+        {
+            return;
+        }
+        let Some(schematic) = state.schematic.clone() else {
+            return;
+        };
+        state.last_place = Some(now);
+        drop(state);
+        if place_next(host, &schematic) {
+            return;
+        }
+        let mut state = self.state.lock().unwrap();
+        state.auto = false;
+        state.auto_note = Some("auto-place: nothing reachable left".into());
     }
 
     fn register_gui_layers(
@@ -142,8 +183,9 @@ impl Hooks for Ghost {
                     schematic.regions.len()
                 ),
                 format!(
-                    "G: hide   L: reload   E: easy-place {}   B: place next",
-                    if state.easy_place { "on" } else { "off" }
+                    "G: hide  L: reload  E: easy-place {}  B: next  T: auto {}",
+                    if state.easy_place { "on" } else { "off" },
+                    if state.auto { "on" } else { "off" }
                 ),
             )
         } else {
@@ -170,6 +212,9 @@ impl Hooks for Ghost {
             true,
         );
         event.draw.text(&detail, [8.0, 36.0], 0xFFB0B0B0, true);
+        if let Some(note) = &state.auto_note {
+            event.draw.text(note, [8.0, 50.0], 0xFF80FF80, true);
+        }
     }
 
     fn render_level_stage(&self, host: &dyn ClientHost, event: &mut RenderLevelStageEvent<'_>) {
@@ -255,20 +300,29 @@ fn distance_squared(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// Place one ghost block through ordinary gameplay: select its item, aim at the top of the
 /// supporting block and click `key.use`. The game then builds its own packet, with the correct
 /// sequence number and all vanilla reach/cooldown checks.
-fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) {
+fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) -> bool {
     let Some(player) = host.local_player() else {
-        return;
+        return false;
     };
     let Some(eye) = player.entity().eye_position(host) else {
-        return;
+        return false;
     };
     let Some(level) = player.level(host) else {
-        return;
+        return false;
     };
 
-    let mut best: Option<(&PlacedQuad, f64)> = None;
+    let mut best: Option<(&PlacedQuad, (i32, f64))> = None;
     for region in &schematic.regions {
         for cell in &region.quads {
+            // Already correct: skip it, so an auto-place loop never repeats a cell.
+            if level
+                .block_state(host, cell.pos)
+                .and_then(|state| host.block_state_string(state))
+                .as_deref()
+                == Some(cell.state.as_str())
+            {
+                continue;
+            }
             let distance = distance_squared(
                 [
                     cell.pos[0] as f64 + 0.5,
@@ -289,29 +343,24 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) {
             if !supported {
                 continue;
             }
-            if best.as_ref().is_none_or(|(_, seen)| distance < *seen) {
-                best = Some((cell, distance));
+            // Bottom-up first, nearest first within a layer.
+            let rank = (cell.pos[1], distance);
+            if best.as_ref().is_none_or(|(_, seen)| &rank < seen) {
+                best = Some((cell, rank));
             }
         }
     }
     let Some((cell, _)) = best else {
-        return;
+        return false;
     };
 
+    // Find the real hotbar slot, not a compacted inventory index. `select_hotbar_slot`
+    // updates the selected slot immediately, so the held item can be checked right away.
     let wanted = host.block_state_id(&cell.state).map(|state| state.block());
-    let slot = player
-        .inventory(host)
-        .unwrap_or_default()
-        .iter()
-        .take(9)
-        .position(|stack| {
-            host.item_block(stack.item())
-                .is_some_and(|item| Some(item) == wanted)
-        });
-    let Some(slot) = slot else {
-        return;
+    let Some(slot) = find_hotbar_slot(host, player, wanted) else {
+        return false;
     };
-    let _ = host.select_hotbar_slot(slot as u8);
+    let _ = host.select_hotbar_slot(slot);
 
     // Aim at the top face of the supporting block (one below the ghost cell).
     let aim = [
@@ -321,7 +370,33 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic) {
     ];
     let (yaw, pitch) = look_at(eye, aim);
     let _ = host.set_local_rotation(yaw, pitch);
-    let _ = host.click_mapping("key.use");
+    host.click_mapping("key.use").is_ok()
+}
+
+/// Scan literal hotbar slots 0..=8 rather than trusting the client's compacted inventory list.
+fn find_hotbar_slot(
+    host: &mut dyn ClientHost,
+    player: mod_api::PlayerRef,
+    wanted: Option<mod_api::BlockKey>,
+) -> Option<u8> {
+    let living = LivingRef::new(player.entity());
+    for slot in 0..=8u8 {
+        if host.select_hotbar_slot(slot).is_err() {
+            continue;
+        }
+        if player.selected_slot(host) != Some(slot as usize) {
+            continue;
+        }
+        let held = living.hand_item(host, Hand::Main);
+        if let Some(item) = held
+            && host
+                .item_block(item.item())
+                .is_some_and(|block| Some(block) == wanted)
+        {
+            return Some(slot);
+        }
+    }
+    None
 }
 
 /// Vanilla yaw/pitch for a view vector pointing from `eye` to `at`.

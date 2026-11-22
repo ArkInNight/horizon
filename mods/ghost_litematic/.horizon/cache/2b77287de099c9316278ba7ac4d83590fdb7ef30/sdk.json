@@ -1,0 +1,227 @@
+{
+  "schema": 1,
+  "build": {
+    "commit": "2b77287de099c9316278ba7ac4d83590fdb7ef30",
+    "game": "26.3",
+    "date": "2026-11-22"
+  },
+  "package_format": 6,
+  "toolchain": {
+    "rust": "1.99.1"
+  },
+  "content_api": "0.2",
+  "surface": {
+    "hash": "a8fb5f69fe272a65b23bc2d25e94e5c4",
+    "previous": "f037744a79f9982c47876f49c5a3067279f88706",
+    "source": "additive",
+    "changes": [
+      "handle:BlockStates::block_entity_type",
+      "handle:DamageContainer::scale_original",
+      "handle:EntityRef::detonate",
+      "handle:EntityRef::hanging_direction",
+      "handle:EntityRef::set_fall_distance",
+      "handle:EntityRef::set_fuse",
+      "handle:EntityRef::set_swimming",
+      "hook:ender_chest_opened",
+      "hook:levels_reset",
+      "method:Hooks::ender_chest_opened",
+      "method:Hooks::levels_reset",
+      "method:RuntimeLevels::reset_vanilla",
+      "method:prelude::ClientRenderClientHost::sprite_pixels",
+      "method:prelude::ConfigServerHost::entity_range_percent",
+      "method:prelude::EntitiesHost::entity_is_valid",
+      "method:prelude::EntitiesHost::entity_type_exists",
+      "type:EnderChestOpenedEvent",
+      "type:LevelResetError",
+      "type:LevelsResetEvent",
+      "type:entity::health::ScaleRefusal"
+    ]
+  },
+  "mixins": {
+    "rev": "e59da9094f0c2fdda6c627fe9eff22dec6a906f0",
+    "patch": "52eaeef7cac10d894066635dc46b12f76d877416317f06eaf385f176de5e1c35"
+  },
+  "assets": {
+    "api-aarch64-apple-darwin.tar.xz": {
+      "sha256": "a4a3e669cb187395469e7a98814107494ba3fc412a594958d6a321d948390632",
+      "size": 30367248,
+      "kind": "api",
+      "codec": "xz",
+      "target": "aarch64-apple-darwin",
+      "side": "client"
+    },
+    "api-source.tar.xz": {
+      "sha256": "ace895c548279e50c706d50c27f18fb4f3f6f48f742bffc3165998f11d0a26b3",
+      "size": 1564844,
+      "kind": "api-source",
+      "codec": "xz"
+    },
+    "api-x86_64-pc-windows-gnu.tar.xz": {
+      "sha256": "a2cc69cde511e2671c4bf1a166e8cf57d955d330599fcd398ad840528fb560c5",
+      "size": 31481736,
+      "kind": "api",
+      "codec": "xz",
+      "target": "x86_64-pc-windows-gnu",
+      "side": "client"
+    },
+    "api-x86_64-unknown-linux-gnu-server.tar.xz": {
+      "sha256": "7a772462e8087aefd801b6a8d5d818b975f7aed509ecaf62992c36e61e6f2035",
+      "size": 30714212,
+      "kind": "api",
+      "codec": "xz",
+      "target": "x86_64-unknown-linux-gnu",
+      "side": "server"
+    },
+    "api-x86_64-unknown-linux-gnu.tar.xz": {
+      "sha256": "145d06af90f909e5aff682d93a34d272c768a027c38aa6b4c66e37e4c19fbe31",
+      "size": 30685968,
+      "kind": "api",
+      "codec": "xz",
+      "target": "x86_64-unknown-linux-gnu",
+      "side": "client"
+    },
+    "build-data.tar.xz": {
+      "sha256": "b19c4dd9df83de24e6a0d3d3a139cbfa56bf17c9b09ca32f1c6d06a0e78c5055",
+      "size": 2515244,
+      "kind": "build-data",
+      "codec": "xz"
+    },
+    "engine-aarch64-apple-darwin.tar.xz": {
+      "sha256": "e7242ea9c00a14150bd1d59f01b7490485a231fba878fd8ab0d3496c845fbac7",
+      "size": 157244340,
+      "kind": "engine",
+      "codec": "xz",
+      "target": "aarch64-apple-darwin",
+      "side": "client"
+    },
+    "engine-x86_64-pc-windows-gnu.tar.xz": {
+      "sha256": "0c04de3c7a35876b7130654c4d993addf45bf81f19ff2284a7efb67ad121e12a",
+      "size": 190264736,
+      "kind": "engine",
+      "codec": "xz",
+      "target": "x86_64-pc-windows-gnu",
+      "side": "client"
+    },
+    "engine-x86_64-unknown-linux-gnu-server.tar.xz": {
+      "sha256": "87fe68e937772006925f43d6d6a5d02096d42328f2e85d5a4006fd546a624b3b",
+      "size": 171703740,
+      "kind": "engine",
+      "codec": "xz",
+      "target": "x86_64-unknown-linux-gnu",
+      "side": "server"
+    },
+    "engine-x86_64-unknown-linux-gnu.tar.xz": {
+      "sha256": "9576ed5687bd8e99a7c186d9265f56ab5233f1f75b806476ba9cf6ee623825b6",
+      "size": 175238372,
+      "kind": "engine",
+      "codec": "xz",
+      "target": "x86_64-unknown-linux-gnu",
+      "side": "client"
+    },
+    "runtime-aarch64-apple-darwin.tar.xz": {
+      "sha256": "5e46c72736f5031133bc4cace1d0c20d5fba480316b897acf05c29a264365c6f",
+      "size": 62867044,
+      "kind": "runtime",
+      "codec": "xz",
+      "target": "aarch64-apple-darwin",
+      "side": "client"
+    },
+    "runtime-x86_64-pc-windows-gnu.tar.xz": {
+      "sha256": "f1e5ebf33e8ba097935cdecbc8c553db2316aba3e5e571e51b8b7eb040b68ffd",
+      "size": 70610316,
+      "kind": "runtime",
+      "codec": "xz",
+      "target": "x86_64-pc-windows-gnu",
+      "side": "client"
+    },
+    "runtime-x86_64-unknown-linux-gnu-server.tar.xz": {
+      "sha256": "239560427d456d0769e4cbadde202101faae3363916f89d386b5a2f9b30534af",
+      "size": 71541664,
+      "kind": "runtime",
+      "codec": "xz",
+      "target": "x86_64-unknown-linux-gnu",
+      "side": "server"
+    },
+    "runtime-x86_64-unknown-linux-gnu.tar.xz": {
+      "sha256": "585a2bf2b86aa89b334a6b5b08cfd2265dc129489b9b65f8fd340eac96a06a49",
+      "size": 72168132,
+      "kind": "runtime",
+      "codec": "xz",
+      "target": "x86_64-unknown-linux-gnu",
+      "side": "client"
+    },
+    "surface.json": {
+      "sha256": "b33d54ab93696aba943fef10963fc912c7a0ce729616a1700ede13556e3ae2cd",
+      "size": 6973098,
+      "kind": "surface",
+      "codec": "none"
+    }
+  },
+  "inputs": {
+    "routes": {
+      "api": {
+        "sdk": [
+          "runtime",
+          "api"
+        ]
+      },
+      "engine": {
+        "sdk": [
+          "runtime",
+          "api",
+          "engine"
+        ]
+      },
+      "package": {
+        "program": [
+          "horizon-ctl",
+          "horizon-prepare",
+          "horizon-server",
+          "horizon-wasm-std.wasm"
+        ],
+        "checkout": [
+          "exporters/manifest.json"
+        ]
+      },
+      "package-server": {
+        "program": [
+          "horizon-prepare",
+          "horizon-server",
+          "horizon-wasm-std.wasm"
+        ],
+        "checkout": [
+          "exporters/manifest.json"
+        ]
+      }
+    },
+    "how": {
+      "api": "the SDK release of the game's exact commit",
+      "engine": "the SDK release of the game's exact commit",
+      "exporters/manifest.json": "horizon-prepare compile-exporters --root CHECKOUT, then copy its server, client and manifest.json into CHECKOUT/exporters/",
+      "horizon-ctl": "cargo build PROFILE -p horizon-client-lib --bin horizon-ctl",
+      "horizon-prepare": "cargo build PROFILE -p horizon-prepare",
+      "horizon-server": "cargo build PROFILE -p horizon-server",
+      "horizon-wasm-std.wasm": "cargo run --locked -p cargo-horizon-mod -- wasm-std PROGRAM_FOLDER/horizon-wasm-std.wasm",
+      "runtime": "the SDK release of the game's exact commit"
+    },
+    "members": {
+      "api": [
+        "native_mod_entry.rs.template",
+        "points.json",
+        "internals.json",
+        "loops.json",
+        "deps/@rmeta:mod_api",
+        "deps/@rmeta:mod_points"
+      ],
+      "runtime": [
+        "horizon-prebuilt.json",
+        "bin/@program:horizon-client",
+        "deps/@dylib:horizon_mod_host",
+        "deps/@dylib:horizon_mod_wasm",
+        "deps/@dylib:mod_api",
+        "deps/@dylib:mod_vocab",
+        "deps/@dylib:mod_points"
+      ]
+    }
+  }
+}
