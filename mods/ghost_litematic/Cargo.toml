@@ -1,0 +1,15 @@
+[package]
+name = "ghost-litematic"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "A native Horizon mod: load a .litematic and draw a translucent ghost overlay."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+horizon-mod-api = { path = "../../crates/horizon-mod-api" }
+flate2 = "=1.1.10"
+
+[workspace]

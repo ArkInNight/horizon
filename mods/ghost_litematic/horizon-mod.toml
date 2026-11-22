@@ -1,0 +1,13 @@
+id = "ghost_litematic"
+name = "Litematic Ghost (PoC)"
+version = "0.1.0"
+description = "Loads build.litematic from the mod's data folder and draws a translucent ghost overlay."
+authors = ["ArkInNight"]
+api = "0.2"
+side = "client"
+capabilities = ["registries"]
+
+[native]
+game = "26.3"
+horizon = "c678bf2b746b76ee3c315cc25360c4cde6b8f164"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"
