@@ -1,6 +1,6 @@
 id = "ghost_litematic"
 name = "Litematic Ghost (PoC)"
-version = "0.4.0"
+version = "0.5.0"
 description = "Loads build.litematic from the mod's data folder and draws a translucent ghost overlay."
 authors = ["ArkInNight"]
 api = "0.2"

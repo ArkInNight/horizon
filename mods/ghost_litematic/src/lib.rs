@@ -4,13 +4,18 @@
 //! (`horizon-mod-data/ghost_litematic/`), press `G` to toggle the ghost and `L` to reload.
 //! The overlay is drawn with the
 //! public client render API only; no mixins and no engine changes are used.
+use mod_api::client::widgets::{Button, Outcome, TextField, WidgetId, Widgets};
 use mod_api::{
-    ClientHost, ClientTickPostEvent, ConfigPath, GuiLayer, GuiLayerDrawEvent, GuiLayerPlacement,
-    Hand, Hooks, InputKeyEvent, KeyAction, LivingRef, RegisterGuiLayersEvent, RenderLevelStage,
-    RenderLevelStageEvent, Tag, WorldDepth, WorldLine, WorldQuad,
+    CONFIG_LIST_MAX, ClientHost, ClientTickPostEvent, ClientTickPreEvent, ConfigEntryKind,
+    ConfigPath, Flow, GuiLayer, GuiLayerDrawEvent, GuiLayerPlacement, Hand, Hooks, InputKeyEvent,
+    KeyAction, LivingRef, RegisterGuiLayersEvent, RenderLevelStage, RenderLevelStageEvent,
+    ScreenCharTypedPreEvent, ScreenKeyPressedPreEvent, ScreenMouseButtonPressedPreEvent,
+    ScreenMouseButtonReleasedPreEvent, ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent,
+    ScreenRenderPostEvent, Tag, Text, WorldDepth, WorldLine, WorldQuad,
 };
 use std::io::Read;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The public `WorldDrawContext` batch cap. Keep a wide margin: a large build needs culling.
 const MAX_QUADS: usize = 4096;
@@ -20,9 +25,11 @@ const DRAW_DISTANCE: f64 = 96.0;
 #[derive(Default)]
 struct Ghost {
     state: Mutex<State>,
+    config: Mutex<Option<ConfigUi>>,
+    close_config: AtomicBool,
 }
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum Layers {
     #[default]
     All,
@@ -50,6 +57,107 @@ struct State {
     last_place: Option<u64>,
     /// A short status line about the last auto-place attempt.
     auto_note: Option<String>,
+    /// The schematic chosen in the config screen; None uses the default file names.
+    file: Option<String>,
+}
+
+const SCREEN_ID: &str = "ghost_litematic";
+const ROW_H: f32 = 14.0;
+const VISIBLE_ROWS: usize = 10;
+const LIST_X: f32 = 20.0;
+const LIST_Y: f32 = 92.0;
+const LIST_W: f32 = 300.0;
+
+struct ConfigUi {
+    widgets: Widgets,
+    close: WidgetId,
+    all: WidgetId,
+    single: WidgetId,
+    follow: WidgetId,
+    range: WidgetId,
+    layer_down: WidgetId,
+    layer_up: WidgetId,
+    thin: WidgetId,
+    thick: WidgetId,
+    easy: WidgetId,
+    auto: WidgetId,
+    rows: Vec<String>,
+    offset: usize,
+}
+
+impl ConfigUi {
+    fn new(host: &dyn ClientHost) -> Self {
+        let mut widgets = Widgets::new();
+        let button = |widgets: &mut Widgets, x: f32, y: f32, label: &'static str| {
+            widgets.add_button(Button::new([x, y, 68.0, 20.0], Text::literal(label)))
+        };
+        let all = button(&mut widgets, 20.0, 20.0, "All");
+        let single = button(&mut widgets, 92.0, 20.0, "Single");
+        let follow = button(&mut widgets, 164.0, 20.0, "Follow");
+        let range = button(&mut widgets, 236.0, 20.0, "Range");
+        let layer_down = button(&mut widgets, 20.0, 46.0, "Layer -");
+        let layer_up = button(&mut widgets, 92.0, 46.0, "Layer +");
+        let thin = button(&mut widgets, 164.0, 46.0, "Thin -");
+        let thick = button(&mut widgets, 236.0, 46.0, "Thin +");
+        let easy = button(&mut widgets, 20.0, 68.0, "Easy");
+        let auto = button(&mut widgets, 92.0, 68.0, "Auto");
+        let close = button(&mut widgets, 236.0, 68.0, "Close");
+        let _filter: WidgetId =
+            widgets.add_text_field(TextField::new([164.0, 68.0, 68.0, 20.0], 64));
+        Self {
+            widgets,
+            close,
+            all,
+            single,
+            follow,
+            range,
+            layer_down,
+            layer_up,
+            thin,
+            thick,
+            easy,
+            auto,
+            rows: list_schematics(host),
+            offset: 0,
+        }
+    }
+
+    fn row_at(&self, [x, y]: [f32; 2]) -> Option<usize> {
+        if x < LIST_X || x >= LIST_X + LIST_W {
+            return None;
+        }
+        let index = ((y - LIST_Y) / ROW_H).floor();
+        if index < 0.0 || index as usize >= VISIBLE_ROWS {
+            return None;
+        }
+        let index = self.offset + index as usize;
+        (index < self.rows.len()).then_some(index)
+    }
+}
+
+fn list_schematics(host: &dyn ClientHost) -> Vec<String> {
+    let files = host.data_files();
+    let root = ConfigPath::root();
+    let mut out = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let page = match files.list(&root, after.as_deref(), CONFIG_LIST_MAX as u32) {
+            Ok(page) => page,
+            Err(_) => break,
+        };
+        if page.is_empty() {
+            break;
+        }
+        for entry in page {
+            if entry.stat.kind == ConfigEntryKind::File
+                && (entry.name.ends_with(".litematic") || entry.name.ends_with(".schem"))
+            {
+                out.push(entry.name.clone());
+            }
+            after = Some(entry.name);
+        }
+    }
+    out
 }
 
 #[derive(Clone)]
@@ -77,6 +185,80 @@ struct Region {
     outline: Vec<WorldLine>,
 }
 
+impl Ghost {
+    /// Route widget input and apply the button that was pressed.
+    fn config_input(&self, host: &dyn ClientHost, f: impl FnOnce(&mut Widgets) -> Outcome) -> Flow {
+        if host.mod_screen() != Some(SCREEN_ID) {
+            return Flow::Continue;
+        }
+        let mut guard = self.config.lock().unwrap();
+        let Some(ui) = guard.as_mut() else {
+            return Flow::Continue;
+        };
+        let outcome = f(&mut ui.widgets);
+        if let Outcome::Pressed(id) = outcome {
+            if id == ui.close {
+                self.close_config.store(true, Ordering::Relaxed);
+            } else {
+                let mut state = self.state.lock().unwrap();
+                if id == ui.all {
+                    state.layers = Layers::All;
+                } else if id == ui.single {
+                    state.layers = Layers::Single;
+                } else if id == ui.follow {
+                    state.layers = Layers::Follow;
+                } else if id == ui.range {
+                    state.layers = Layers::Range;
+                } else if id == ui.layer_down {
+                    state.center -= 1;
+                } else if id == ui.layer_up {
+                    state.center += 1;
+                } else if id == ui.thin {
+                    state.half = (state.half - 1).max(0);
+                } else if id == ui.thick {
+                    state.half += 1;
+                } else if id == ui.easy {
+                    state.easy_place ^= true;
+                } else if id == ui.auto {
+                    state.auto ^= true;
+                    if state.auto {
+                        state.easy_place = true;
+                        state.last_place = None;
+                    }
+                }
+            }
+        }
+        if outcome.handled() {
+            Flow::Cancel
+        } else {
+            Flow::Continue
+        }
+    }
+
+    /// Click a file row: load that schematic on the next render.
+    fn select_row(&self, host: &dyn ClientHost, at: [f32; 2]) -> Flow {
+        if host.mod_screen() != Some(SCREEN_ID) {
+            return Flow::Continue;
+        }
+        let guard = self.config.lock().unwrap();
+        let Some(ui) = guard.as_ref() else {
+            return Flow::Continue;
+        };
+        let Some(index) = ui.row_at(at) else {
+            return Flow::Continue;
+        };
+        let file = ui.rows[index].clone();
+        drop(guard);
+        let mut state = self.state.lock().unwrap();
+        state.file = Some(file);
+        state.attempted = false;
+        state.schematic = None;
+        state.error = None;
+        state.auto = false;
+        Flow::Cancel
+    }
+}
+
 #[mod_api::horizon_mod]
 impl Hooks for Ghost {
     fn input_key(&self, host: &mut dyn ClientHost, event: &mut InputKeyEvent<'_>) {
@@ -93,6 +275,10 @@ impl Hooks for Ghost {
             return;
         }
         match event.key {
+            "key.keyboard.c" if host.playing() => {
+                *self.config.lock().unwrap() = None;
+                let _ = host.mod_screen_open(SCREEN_ID);
+            }
             "key.keyboard.g" => state.visible ^= true,
             "key.keyboard.e" => state.easy_place ^= true,
             "key.keyboard.t" => {
@@ -230,7 +416,8 @@ impl Hooks for Ghost {
             let mut state = self.state.lock().unwrap();
             if !state.attempted {
                 state.attempted = true;
-                match load(host) {
+                let file = state.file.clone();
+                match load(host, file.as_deref()) {
                     Ok(schematic) => state.schematic = Some(schematic),
                     Err(error) => state.error = Some(error),
                 }
@@ -290,6 +477,126 @@ impl Hooks for Ghost {
         // Batches are atomic: either all of it draws or none does.
         let _ = event.draw.quads(&quads);
         let _ = event.draw.lines(&outline);
+    }
+
+    fn client_tick_pre(&self, host: &mut dyn ClientHost, _event: &mut ClientTickPreEvent) {
+        if self.close_config.swap(false, Ordering::Relaxed) {
+            host.mod_screen_close(SCREEN_ID);
+        }
+    }
+
+    fn screen_render_post(&self, host: &dyn ClientHost, event: &mut ScreenRenderPostEvent<'_>) {
+        if host.mod_screen() != Some(SCREEN_ID) {
+            return;
+        }
+        let mut guard = self.config.lock().unwrap();
+        let ui = guard.get_or_insert_with(|| ConfigUi::new(host));
+        let draw = &mut *event.draw;
+        draw.fill(
+            [0.0, 0.0, 340.0, 80.0 + VISIBLE_ROWS as f32 * ROW_H],
+            0xE0_10_10_14,
+        );
+        draw.text(
+            "Schematic files (click to load)",
+            [LIST_X, LIST_Y - 14.0],
+            0xFFFFC840,
+            true,
+        );
+        let _ = ui.widgets.draw(draw, host, event.screen.mouse);
+        let layer = self.state.lock().unwrap();
+        draw.text(
+            &format!(
+                "Mode: {:?}   layer {}   range +/-{}   easy {}   auto {}",
+                layer.layers, layer.center, layer.half, layer.easy_place, layer.auto
+            ),
+            [20.0, 88.0 + VISIBLE_ROWS as f32 * ROW_H],
+            0xFFB0B0B0,
+            true,
+        );
+        drop(layer);
+        for (slot, name) in ui
+            .rows
+            .iter()
+            .skip(ui.offset)
+            .take(VISIBLE_ROWS)
+            .enumerate()
+        {
+            let y = LIST_Y + slot as f32 * ROW_H;
+            if ui.row_at(event.screen.mouse) == Some(ui.offset + slot) {
+                draw.fill([LIST_X, y, LIST_W, ROW_H], 0x40FFFFFF);
+            }
+            draw.text(name, [LIST_X + 2.0, y + 2.0], 0xFFFFFFFF, true);
+        }
+    }
+
+    fn screen_mouse_button_pressed_pre(
+        &self,
+        host: &dyn ClientHost,
+        event: &mut ScreenMouseButtonPressedPreEvent<'_>,
+    ) -> Flow {
+        let (at, button, modifiers) = (event.screen.mouse, event.button, event.modifiers);
+        let flow = self.config_input(host, |w| w.mouse_pressed(host, at, button, modifiers));
+        if flow == Flow::Cancel {
+            return flow;
+        }
+        self.select_row(host, at)
+    }
+
+    fn screen_mouse_button_released_pre(
+        &self,
+        host: &dyn ClientHost,
+        event: &mut ScreenMouseButtonReleasedPreEvent<'_>,
+    ) -> Flow {
+        self.config_input(host, |w| w.mouse_released(event.button))
+    }
+
+    fn screen_mouse_dragged_pre(
+        &self,
+        host: &dyn ClientHost,
+        event: &mut ScreenMouseDraggedPreEvent<'_>,
+    ) -> Flow {
+        let (at, button) = (event.screen.mouse, event.button);
+        self.config_input(host, |w| w.mouse_dragged(host, at, button))
+    }
+
+    fn screen_mouse_scrolled_pre(
+        &self,
+        host: &dyn ClientHost,
+        event: &mut ScreenMouseScrolledPreEvent<'_>,
+    ) -> Flow {
+        if host.mod_screen() != Some(SCREEN_ID) {
+            return Flow::Continue;
+        }
+        let mut guard = self.config.lock().unwrap();
+        let Some(ui) = guard.as_mut() else {
+            return Flow::Continue;
+        };
+        let before = ui.offset;
+        ui.offset = ui
+            .offset
+            .saturating_add_signed((event.scroll[1] as isize).saturating_neg())
+            .min(ui.rows.len().saturating_sub(VISIBLE_ROWS));
+        if ui.offset == before {
+            Flow::Continue
+        } else {
+            Flow::Cancel
+        }
+    }
+
+    fn screen_key_pressed_pre(
+        &self,
+        host: &dyn ClientHost,
+        event: &mut ScreenKeyPressedPreEvent<'_>,
+    ) -> Flow {
+        self.config_input(host, |w| w.key_pressed(host, event.key, event.modifiers))
+    }
+
+    fn screen_char_typed_pre(
+        &self,
+        host: &dyn ClientHost,
+        event: &mut ScreenCharTypedPreEvent<'_>,
+    ) -> Flow {
+        self.config_input(host, |w| w.char_typed(host, event.c))
     }
 }
 
@@ -408,11 +715,17 @@ fn look_at(eye: [f64; 3], at: [f64; 3]) -> (f32, f32) {
 }
 
 /// Read `build.litematic` (or `build.schem`) from this mod's data files and decode it.
-fn load(host: &dyn ClientHost) -> Result<Schematic, String> {
-    let (name, compressed) = ["build.litematic", "build.schem"]
-        .into_iter()
-        .find_map(|file| read_file(host, file).transpose().map(|bytes| (file, bytes)))
-        .ok_or("put build.litematic or build.schem in horizon-mod-data/ghost_litematic/")?;
+fn load(host: &dyn ClientHost, chosen: Option<&str>) -> Result<Schematic, String> {
+    let (name, compressed) = if let Some(file) = chosen {
+        let bytes = read_file(host, file)?
+            .ok_or_else(|| format!("{file} is gone from the mod's data folder"))?;
+        (file, Ok(bytes))
+    } else {
+        ["build.litematic", "build.schem"]
+            .into_iter()
+            .find_map(|file| read_file(host, file).transpose().map(|bytes| (file, bytes)))
+            .ok_or("put build.litematic or build.schem in horizon-mod-data/ghost_litematic/")?
+    };
     let compressed = compressed?;
     let mut raw = Vec::new();
     flate2::read::GzDecoder::new(&compressed[..])

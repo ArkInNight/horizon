@@ -15,12 +15,13 @@ Status rows: **Done**, **Next**, **Later**, **Blocked**. Effort is a rough one-p
 | 0.3.0 | Easy-place MVP | `E` enable, `B` place next reachable cell: hotbar match, aim at support, `key.use`. |
 | 0.4.0 | Auto-place loop | `T` toggles a 250 ms bottom-up loop; stops when nothing is reachable. |
 | 0.4.0 | Robust hotbar matching | Scan literal slots 0..=8 and verify the held item; no dependence on compacted inventory indices. |
+| 0.5.0 | Config screen | `C` opens a UI: pick a schematic file, layer modes, easy/auto toggles. |
 
 ## Next
 
 | Priority | Feature | Effort | Why |
 |---|---|---|---|
-| P1 | Config screen | M | Malilib-style UI: pick file, toggle layers, per-region visibility, presets (`mod_screen_open` + `Widgets`). |
+| P1 | Verifier overlay | M | Compare world blocks with the schematic and tint matches / mismatches. |
 | P1 | Verifier overlay | M | Compare `level.block_state` with the schematic and tint matching / mismatched cells. |
 | P1 | Block-entity ghosts | M | Show chest/sign/beacon positions and labels from `TileEntities` / `BlockEntities`. |
 

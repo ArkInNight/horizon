@@ -4,6 +4,15 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-22
+
+### Added
+- Config screen: press `C` in a world to open a malilib-style UI.
+  - Lists `.litematic` / `.schem` files from the mod's data folder; click a row to load it.
+  - Buttons for all layer modes, layer up/down, range thickness, easy-place and auto-place.
+  - Scroll wheel pages the file list; `Close` (or Escape) exits.
+- `load()` now honours the file selected in the screen instead of only the two default names.
+
 ## [0.4.0] — 2026-11-22
 
 ### Added
