@@ -571,6 +571,11 @@ impl Hooks for Ghost {
                 continue;
             }
             for placed in &region.quads {
+                let pos = [
+                    placed.pos[0] + state.offset[0],
+                    placed.pos[1] + state.offset[1],
+                    placed.pos[2] + state.offset[2],
+                ];
                 let shown = match state.layers {
                     Layers::All => true,
                     Layers::Single => placed.pos[1] == origin[1] + state.center,
@@ -580,7 +585,14 @@ impl Hooks for Ghost {
                     Layers::Follow => placed.pos[1] == player_y,
                 };
                 if !shown
-                    || distance_squared(placed.quad.corners[0], camera) > DRAW_DISTANCE.powi(2)
+                    || distance_squared(
+                        [
+                            pos[0] as f64 + 0.5,
+                            pos[1] as f64 + 0.5,
+                            pos[2] as f64 + 0.5,
+                        ],
+                        camera,
+                    ) > DRAW_DISTANCE.powi(2)
                 {
                     continue;
                 }
@@ -590,7 +602,7 @@ impl Hooks for Ghost {
                 let mut color = placed.quad.color;
                 if state.verify {
                     let world = level
-                        .and_then(|level| level.block_state(host, placed.pos))
+                        .and_then(|level| level.block_state(host, pos))
                         .and_then(|block| host.block_state_string(block));
                     match world.as_deref() {
                         Some(name) if name == placed.state => {
@@ -609,12 +621,17 @@ impl Hooks for Ghost {
                 }
                 // Three shaded faces read as a block, not a flat tile on the ground.
                 if quads.len() + 3 <= MAX_QUADS {
-                    let wx = placed.pos[0] as f64;
-                    let wy = placed.pos[1] as f64;
-                    let wz = placed.pos[2] as f64;
+                    let wx = pos[0] as f64;
+                    let wy = pos[1] as f64;
+                    let wz = pos[2] as f64;
                     let inset = 0.49;
                     quads.push(WorldQuad::new(
-                        placed.quad.corners,
+                        [
+                            [wx - inset, wy + 1.01, wz - inset],
+                            [wx - inset, wy + 1.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz - inset],
+                        ],
                         shade(color, 100),
                         placed.quad.depth,
                     ));
@@ -642,8 +659,19 @@ impl Hooks for Ghost {
             }
             for line in &region.outline {
                 if outline.len() < 512 {
+                    let shift = |at: [f64; 3]| {
+                        [
+                            at[0] + state.offset[0] as f64,
+                            at[1] + state.offset[1] as f64,
+                            at[2] + state.offset[2] as f64,
+                        ]
+                    };
                     outline.push(WorldLine::new(
-                        line.from, line.to, line.color, line.width, line.depth,
+                        shift(line.from),
+                        shift(line.to),
+                        line.color,
+                        line.width,
+                        line.depth,
                     ));
                 }
             }

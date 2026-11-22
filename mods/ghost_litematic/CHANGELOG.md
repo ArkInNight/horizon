@@ -4,6 +4,13 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-11-22
+
+### Fixed
+- E2E found that ghost quads and region boxes were still drawn at the file's original coordinates
+  even after moving/anchoring: the offset is now applied to quad corners, culling, verifier lookups
+  and box outlines. The ghost actually appears where the player placed it.
+
 ## [0.9.0] — 2026-11-22
 
 ### Added
