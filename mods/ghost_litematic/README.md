@@ -1,40 +1,49 @@
 # ghost_litematic — litematica-lite PoC
 
-A native Horizon mod that reads a `.litematic` file and draws its blocks as a translucent
-ghost overlay. This is a **proof of concept**: no engine changes, no mixins, only the public
-mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_layer_draw`, `data_files`).
+A native Horizon mod that reads a `.litematic` **or** a Sponge `.schem` and draws its blocks as a
+translucent ghost overlay. This is a **proof of concept**: no engine changes, no mixins, only the
+public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_layer_draw`, `data_files`).
 
 ## What works
 
-- Loads a real gzipped, named-root NBT `.litematic` from the mod's data folder.
-- Reads `Size`, `Position`, `BlockStatePalette` and packed `BlockStates` for every region.
-- Draws one translucent top-face quad per non-air block, plus a wireframe box per region.
-- Culls by camera distance and caps batches at the API's 4,096-quad limit.
-- `G` toggles the overlay, `L` reloads the file, HUD shows status and errors.
+- Loads `build.litematic` (gzipped, named-root NBT, `BlockStatePalette` + packed `BlockStates`)
+  or `build.schem` (Sponge v1–3, palette + LEB128 varint indices) from the mod's data folder.
+- One translucent quad per non-air block, plus a wireframe box per region/schematic.
+- Camera-distance culling and the API's 4,096-quad batch cap.
+- Layer / slice controls:
+  - `O` — all layers
+  - `P` — single layer
+  - `H` — slice that follows the player's feet
+  - `R` — a range of layers around the current one
+  - `[` / `]` — move the current layer down / up
+  - `-` / `=` — shrink / grow the range thickness
+- `G` toggles the overlay, `L` reloads the file. The HUD shows the active mode and layer.
 
 ## Not in this PoC
 
 - Exact vanilla ghost block models (drawn as flat unlit quads).
-- Block entities, entities, layer/slice controls.
+- Block entities, entities, per-region visibility lists.
 - Easy-place mode, schematic verifier, bulk paste into the world (client mods cannot write
   blocks — that needs a companion server mod).
 
 ## Install / test
 
-1. Build the mod against this checkout (it depends on the API crate by path):
+1. Build and test the crate:
    ```sh
    cargo test --manifest-path mods/ghost_litematic/Cargo.toml
    ```
    A real installable `.hmod` needs a signed SDK for the pinned build; `cargo horizon-mod check`
    from this folder will report a 404 until a developer SDK is published for this commit.
-2. Copy the built native mod into the instance and place the schematic in the mod's data folder:
+2. Put the schematic in the mod's data folder:
    ```
    <game data>/horizon-mod-data/ghost_litematic/build.litematic
    ```
-3. Start the game, press `G`.
+   or rename a `.schem` to `build.schem` in the same folder.
+3. Start the game, press `G`, then use the layer keys above.
 
-A tiny valid fixture is included: `fixtures/sample.litematic` (3×2×3, 9 blocks). Regenerate it
-with `python3 make_sample.py`. To use it as the live file:
+Two small valid fixtures are included. Regenerate them with `python3 make_sample.py`:
 ```sh
-cp fixtures/sample.litematic <game data>/horizon-mod-data/ghost_litematic/build.litematic
+cp mods/ghost_litematic/fixtures/sample.litematic <data>/horizon-mod-data/ghost_litematic/build.litematic
+# or
+cp mods/ghost_litematic/fixtures/sample.schem <data>/horizon-mod-data/ghost_litematic/build.schem
 ```

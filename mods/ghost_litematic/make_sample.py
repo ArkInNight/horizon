@@ -9,7 +9,9 @@ import struct
 import sys
 from pathlib import Path
 
-END, BYTE, INT, STRING, LIST, COMPOUND, INT_ARRAY, LONG_ARRAY = 0, 1, 3, 8, 9, 10, 11, 12
+END, SHORT, INT, STRING, LIST, COMPOUND, BYTE_ARRAY, INT_ARRAY, LONG_ARRAY = (
+    0, 2, 3, 8, 9, 10, 7, 11, 12,
+)
 
 
 def name(text: str) -> bytes:
@@ -24,6 +26,25 @@ def field(tag: int, key: str, payload: bytes) -> bytes:
 def string(value: str) -> bytes:
     raw = value.encode("utf-8")
     return struct.pack(">H", len(raw)) + raw
+
+
+def short(value: int) -> bytes:
+    return struct.pack(">h", value)
+
+
+def byte_array(values) -> bytes:
+    raw = bytes(values)
+    return struct.pack(">i", len(raw)) + raw
+
+
+def varint(value: int) -> bytes:
+    out = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
 
 
 def int_array(values) -> bytes:
@@ -71,6 +92,31 @@ def main() -> None:
     document = bytes([COMPOUND]) + name("Minecraft") + root
     out.write_bytes(gzip.compress(document, mtime=0))
     print(f"wrote {out} ({len(document)} bytes of NBT)")
+
+    # A matching Sponge v3 .schem: same 3x2x3 pattern, varint palette indices.
+    palette_compound = b"".join(
+        field(INT, state, struct.pack(">i", index)) for state, index in
+        zip(["minecraft:air", "minecraft:stone", "minecraft:dirt"], range(3))
+    ) + bytes([END])
+    blocks = b"".join([
+        field(COMPOUND, "Palette", palette_compound),
+        field(BYTE_ARRAY, "Data", byte_array(b"".join(varint(v) for v in cells))),
+        field(LIST, "BlockEntities", bytes([COMPOUND]) + struct.pack(">i", 0)),
+        bytes([END]),
+    ])
+    schem = b"".join([
+        field(INT, "Version", struct.pack(">i", 3)),
+        field(SHORT, "Width", short(3)),
+        field(SHORT, "Height", short(2)),
+        field(SHORT, "Length", short(3)),
+        field(INT_ARRAY, "Origin", int_array([0, 64, 0])),
+        field(COMPOUND, "Blocks", blocks),
+        bytes([END]),
+    ])
+    schem_document = bytes([COMPOUND]) + name("Schematic") + schem
+    schem_path = out.with_suffix(".schem")
+    schem_path.write_bytes(gzip.compress(schem_document, mtime=0))
+    print(f"wrote {schem_path} ({len(schem_document)} bytes of NBT)")
 
 
 if __name__ == "__main__":
