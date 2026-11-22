@@ -19,16 +19,16 @@ cargo run --locked --manifest-path "$ROOT/Cargo.toml" -p cargo-horizon-mod -- \
 cd "$WORK/ghost-wasm-build"
 
 cp "$HERE/src/lib.rs" src/lib.rs
-cat > horizon-mod.toml <<'TOML'
-id = "ghost_litematic"
-name = "Litematic Ghost (PoC)"
-version = "0.1.0"
-description = "Load .litematic/.schem and draw a translucent ghost overlay."
-authors = ["ArkInNight"]
-api = "0.2"
-side = "client"
-capabilities = ["registries"]
-TOML
+cp "$HERE/horizon-mod.toml" horizon-mod.toml
+# The source manifest pins a native developer build; a wasm mod must not carry that section.
+python3 - <<'PY'
+from pathlib import Path
+p = Path('horizon-mod.toml')
+text = p.read_text()
+if '\n[native]\n' in text:
+    text = text.split('\n[native]\n', 1)[0] + '\n'
+p.write_text(text)
+PY
 python3 - <<'PY'
 from pathlib import Path
 p = Path('Cargo.toml')
