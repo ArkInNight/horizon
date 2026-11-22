@@ -21,6 +21,7 @@ Status rows: **Done**, **Next**, **Later**, **Blocked**. Effort is a rough one-p
 | 0.8.0 | Alt-only bindings | No more collisions with vanilla keys. |
 | 0.8.0 | Ghost cube rendering | Three shaded faces per block instead of one flat tile. |
 | 0.8.0 | Move / anchor schematic | `Alt+arrows` and screen buttons; first load anchored near the player. |
+| 0.9.0 | Rebindable controls | 21 registered key mappings in Options > Controls. |
 
 ## Next
 

@@ -7,11 +7,12 @@
 use mod_api::client::widgets::{Button, Outcome, WidgetId, Widgets};
 use mod_api::{
     CONFIG_LIST_MAX, ClientHost, ClientTickPostEvent, ClientTickPreEvent, ConfigEntryKind,
-    ConfigPath, Flow, GuiLayer, GuiLayerDrawEvent, GuiLayerPlacement, Hand, Hooks, InputKeyEvent,
-    KeyAction, LivingRef, RegisterGuiLayersEvent, RenderLevelStage, RenderLevelStageEvent,
-    ScreenCharTypedPreEvent, ScreenKeyPressedPreEvent, ScreenMouseButtonPressedPreEvent,
-    ScreenMouseButtonReleasedPreEvent, ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent,
-    ScreenRenderPostEvent, Tag, Text, WorldDepth, WorldLine, WorldQuad,
+    ConfigPath, Flow, GuiLayer, GuiLayerDrawEvent, GuiLayerPlacement, Hand, Hooks,
+    KeyConflictContext, KeyRegistration, LivingRef, RegisterGuiLayersEvent, Registrar,
+    RegistrationContext, RenderLevelStage, RenderLevelStageEvent, ScreenCharTypedPreEvent,
+    ScreenKeyPressedPreEvent, ScreenMouseButtonPressedPreEvent, ScreenMouseButtonReleasedPreEvent,
+    ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent, ScreenRenderPostEvent, Tag, Text,
+    WorldDepth, WorldLine, WorldQuad,
 };
 use std::collections::HashSet;
 use std::io::Read;
@@ -71,6 +72,30 @@ struct State {
 }
 
 const SCREEN_ID: &str = "ghost_litematic";
+/// (id, default key) — all appear in Options > Controls and can be rebound by the player.
+const MAPPINGS: &[(&str, &str)] = &[
+    ("toggle", "key.keyboard.g"),
+    ("reload", "key.keyboard.l"),
+    ("config", "key.keyboard.c"),
+    ("verify", "key.keyboard.v"),
+    ("easy", "key.keyboard.e"),
+    ("place", "key.keyboard.b"),
+    ("auto", "key.keyboard.t"),
+    ("all", "key.keyboard.o"),
+    ("single", "key.keyboard.p"),
+    ("follow", "key.keyboard.h"),
+    ("range", "key.keyboard.r"),
+    ("layer_down", "key.keyboard.left.bracket"),
+    ("layer_up", "key.keyboard.right.bracket"),
+    ("thin", "key.keyboard.minus"),
+    ("thick", "key.keyboard.equal"),
+    ("move_xn", "key.keyboard.z"),
+    ("move_xp", "key.keyboard.x"),
+    ("move_yn", "key.keyboard.k"),
+    ("move_yp", "key.keyboard.i"),
+    ("move_zn", "key.keyboard.comma"),
+    ("move_zp", "key.keyboard.period"),
+];
 const ROW_H: f32 = 14.0;
 const VISIBLE_ROWS: usize = 10;
 const LIST_X: f32 = 20.0;
@@ -305,45 +330,24 @@ impl Ghost {
         state.auto = false;
         Flow::Cancel
     }
-}
 
-#[mod_api::horizon_mod]
-impl Hooks for Ghost {
-    fn input_key(&self, host: &mut dyn ClientHost, event: &mut InputKeyEvent<'_>) {
-        if event.action != KeyAction::Press || event.modifiers & 4 == 0 {
-            // Every binding is Alt-modified so it cannot collide with vanilla keys.
-            return;
-        }
+    /// Apply one action from a user-rebindable mapping.
+    fn handle_action(&self, host: &mut dyn ClientHost, id: &str) {
         let mut state = self.state.lock().unwrap();
-        // Alt + arrows / PageUp-Down move the whole schematic. With Shift, move 16 blocks.
-        let step = if event.modifiers & 1 != 0 { 16 } else { 1 };
-        match event.key {
-            "key.keyboard.left" => state.offset[0] -= step,
-            "key.keyboard.right" => state.offset[0] += step,
-            "key.keyboard.up" => state.offset[2] += step,
-            "key.keyboard.down" => state.offset[2] -= step,
-            "key.keyboard.page.up" => state.offset[1] += step,
-            "key.keyboard.page.down" => state.offset[1] -= step,
-            _ => {}
-        }
-        if event.key == "key.keyboard.b" && state.easy_place {
-            let schematic = state.schematic.clone();
-            if let Some(schematic) = schematic {
-                let offset = state.offset;
-                drop(state);
-                place_next(host, &schematic, offset);
+        match id {
+            "toggle" => state.visible ^= true,
+            "reload" => {
+                state.attempted = false;
+                state.schematic = None;
+                state.error = None;
             }
-            return;
-        }
-        match event.key {
-            "key.keyboard.c" if host.playing() => {
+            "config" => {
                 *self.config.lock().unwrap() = None;
                 let _ = host.mod_screen_open(SCREEN_ID);
             }
-            "key.keyboard.g" => state.visible ^= true,
-            "key.keyboard.e" => state.easy_place ^= true,
-            "key.keyboard.v" => state.verify ^= true,
-            "key.keyboard.t" => {
+            "verify" => state.verify ^= true,
+            "easy" => state.easy_place ^= true,
+            "auto" => {
                 state.auto ^= true;
                 if state.auto {
                     state.easy_place = true;
@@ -353,22 +357,43 @@ impl Hooks for Ghost {
                     state.auto_note = Some("auto-place stopped".into());
                 }
             }
-            "key.keyboard.l" => {
-                state.attempted = false;
-                state.schematic = None;
-                state.error = None;
+            "all" => state.layers = Layers::All,
+            "single" => state.layers = Layers::Single,
+            "follow" => state.layers = Layers::Follow,
+            "range" => state.layers = Layers::Range,
+            "layer_down" => state.center -= 1,
+            "layer_up" => state.center += 1,
+            "thin" => state.half = (state.half - 1).max(0),
+            "thick" => state.half += 1,
+            "move_xn" => state.offset[0] -= 1,
+            "move_xp" => state.offset[0] += 1,
+            "move_yn" => state.offset[1] -= 1,
+            "move_yp" => state.offset[1] += 1,
+            "move_zn" => state.offset[2] -= 1,
+            "move_zp" => state.offset[2] += 1,
+            "place" if state.easy_place => {
+                let schematic = state.schematic.clone();
+                if let Some(schematic) = schematic {
+                    let offset = state.offset;
+                    drop(state);
+                    place_next(host, &schematic, offset);
+                }
             }
-            "key.keyboard.o" => state.layers = Layers::All,
-            "key.keyboard.p" => state.layers = Layers::Single,
-            "key.keyboard.h" => state.layers = Layers::Follow,
-            "key.keyboard.r" => state.layers = Layers::Range,
-            "key.keyboard.left.bracket" => state.center -= 1,
-            "key.keyboard.right.bracket" => state.center += 1,
-            "key.keyboard.minus" if state.layers == Layers::Range => {
-                state.half = (state.half - 1).max(0);
-            }
-            "key.keyboard.equal" if state.layers == Layers::Range => state.half += 1,
             _ => {}
+        }
+    }
+}
+
+#[mod_api::horizon_mod]
+impl Hooks for Ghost {
+    fn register(&self, registrar: &mut dyn Registrar, _context: &RegistrationContext) {
+        for (id, key) in MAPPINGS {
+            registrar.register_key_mapping(
+                KeyRegistration::new(id, key)
+                    .label(&format!("key.ghost_litematic.{id}"))
+                    .category("key.ghost_litematic.category")
+                    .context(KeyConflictContext::InGame),
+            );
         }
     }
 
@@ -422,7 +447,7 @@ impl Hooks for Ghost {
         } else if !state.visible {
             (
                 "Litematic ghost: OFF".to_string(),
-                "Press Alt+G to show, Alt+L to reload".to_string(),
+                "Press G to show, L to reload (rebind in Controls)".to_string(),
             )
         } else if let Some(schematic) = &state.schematic {
             (
@@ -432,7 +457,7 @@ impl Hooks for Ghost {
                     schematic.regions.len()
                 ),
                 format!(
-                    "Alt+G hide  Alt+L reload  Alt+E easy {}  Alt+B next  Alt+T auto {}",
+                    "G hide  L reload  E easy {}  B next  T auto {}  (rebind in Controls)",
                     if state.easy_place { "on" } else { "off" },
                     if state.auto { "on" } else { "off" }
                 ),
@@ -455,7 +480,7 @@ impl Hooks for Ghost {
         };
         event.draw.text(&title, [8.0, 8.0], 0xFFFFFFFF, true);
         event.draw.text(
-            &format!("{layers}  [Alt+O/P/H/R layers  Alt+[ ] layer  Alt+-/= thickness]"),
+            &format!("{layers}  [O/P/H/R layers  [ ] layer  -/= thickness]"),
             [8.0, 22.0],
             0xFFFFC840,
             true,
@@ -696,6 +721,15 @@ impl Hooks for Ghost {
     fn client_tick_pre(&self, host: &mut dyn ClientHost, _event: &mut ClientTickPreEvent) {
         if self.close_config.swap(false, Ordering::Relaxed) {
             host.mod_screen_close(SCREEN_ID);
+        }
+        if !host.playing() {
+            return;
+        }
+        // Custom mappings are polled: each press (or repeat) puts one click on the queue.
+        for (id, _) in MAPPINGS {
+            if host.consume_click(SCREEN_ID, id) {
+                self.handle_action(host, id);
+            }
         }
     }
 

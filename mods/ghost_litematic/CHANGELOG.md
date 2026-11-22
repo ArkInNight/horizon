@@ -4,6 +4,13 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-11-22
+
+### Added
+- All 21 controls are now **registered key mappings**: they show under Options > Controls and
+  can be rebound (and reset) by the player. Defaults are plain keys; the old Alt hard-coding is gone.
+- Actions are polled from `ClientHost::consume_click` in `client_tick_pre`.
+
 ## [0.8.0] — 2026-11-22
 
 ### Changed

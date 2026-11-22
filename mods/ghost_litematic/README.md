@@ -10,15 +10,18 @@ public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_l
   or `build.schem` (Sponge v1–3, palette + LEB128 varint indices) from the mod's data folder.
 - One translucent quad per non-air block, plus a wireframe box per region/schematic.
 - Camera-distance culling and the API's 4,096-quad batch cap.
-- All bindings use **Alt** to avoid vanilla conflicts. Layer / slice controls:
+- Controls are **registered key mappings**: open Options > Controls, find the `ghost_litematic`
+  section, and rebind or reset any of them. Defaults are listed below.
+- Layer / slice controls:
   - `O` — all layers
   - `P` — single layer
   - `H` — slice that follows the player's feet
   - `R` — a range of layers around the current one
   - `[` / `]` — move the current layer down / up
   - `-` / `=` — shrink / grow the range thickness
-- `Alt+G` toggles the overlay, `Alt+L` reloads, `Alt+C` opens the config screen, `Alt+V` toggles verifier colours. The HUD shows the active mode, layer, offset and verify tally.
-- `Alt+arrows` move the schematic on X/Z, `Alt+PageUp/PageDown` on Y (hold Shift for 16 blocks). The config screen has matching buttons.
+- Defaults: `G` toggle, `L` reload, `C` config screen, `V` verifier, `E` easy-place, `B` place next,
+  `T` auto-place, `O/P/H/R` layer modes, `[`/`]` layer, `-`/`=` thickness, `Z/X`, `K/I`, `,`/`.`
+  move the schematic on X/Y/Z. The config screen has `X-/X+/Y-/Y+/Z-/Z+` buttons as well.
 - The first load is anchored near the player, so test schematics no longer appear high in the sky.
 
 ## Not in this PoC
@@ -41,7 +44,7 @@ public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_l
    <game data>/horizon-mod-data/ghost_litematic/build.litematic
    ```
    or rename a `.schem` to `build.schem` in the same folder.
-3. Start the game, press `Alt+G`, then use the Alt-modified keys above.
+3. Start the game, press `G` (or whatever you rebound it to), then adjust Controls if desired.
 
 Two small valid fixtures are included. Regenerate them with `python3 make_sample.py`:
 ```sh
