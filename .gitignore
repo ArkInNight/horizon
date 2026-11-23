@@ -45,5 +45,8 @@
 # Visual Studio editor state.
 .vs/
 
+# Crowdin's export, read by tools/crowdin_import.py: the lang files are the copy that ships.
+/l10n/
+
 # The locally built offline launcher binary (never commit it).
 /launcher/horizon-launcher-offline

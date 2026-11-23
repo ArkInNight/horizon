@@ -91,7 +91,7 @@ MCP: `prepare`.
 
 ## `horizon-launcher play`
 
-Start the client (offline without a signed-in Microsoft account).
+Start the client (needs a signed-in Microsoft account that owns Minecraft: Java Edition).
 
     horizon-launcher play
 
@@ -230,7 +230,7 @@ MCP: `account_sign_out`, needs `confirm: true`.
 
 ## `horizon-launcher account select`
 
-Play as this account, or as one of your offline names.
+Play as this account.
 
     horizon-launcher account select <WHO>
 
@@ -238,48 +238,13 @@ Play as this account, or as one of your offline names.
 
 MCP: `account_select`.
 
-## `horizon-launcher account offline`
-
-Play offline: as NAME (kept to switch back to; 3 to 16 letters, digits or _), or as the name the game made up when NAME is left out.
-
-    horizon-launcher account offline [NAME]
-
-- `NAME`
-
-MCP: `account_offline`.
-
-## `horizon-launcher account forget-offline`
-
-Forget one of your offline names; its skin and cape go with it.
-
-    horizon-launcher account forget-offline <NAME>
-
-- `NAME`
-
-MCP: `account_forget_offline`.
-
-## `horizon-launcher account skin`
-
-Show or set an offline name's skin and cape: a 64x64 (or 64x32) skin PNG, a 64x32 cape PNG, and the arm model. Kept by the launcher and given to the game when that name plays.
-
-    horizon-launcher account skin <NAME> [FILE]
-
-- `NAME`
-- `FILE`: The skin's PNG
-- `--model`: classic or slim arms
-- `--cape`: The cape's PNG
-- `--no-skin`: Back to the default skin
-- `--no-cape`: Take the cape off
-
-MCP: `account_skin`.
-
 ## `horizon-launcher settings`
 
-Show the launcher's settings, or set one (the Settings page): selected-version TAG, game-architecture auto|x64|arm64, minecraft-dir PATH, minecraft-jar PATH (a client jar to prepare from, instead of a folder), server-dir PATH ("default" resets a folder), install-new-versions on|off, prune-old-versions on|off (delete old versions after an install, keeping the selected one, the ones instances use and the newest few), keep-versions N (how many of the newest to keep; "default" is 2), opening-animation on|off, proxy http://host:port|socks5://host:port ("default" removes it), while-playing stay|minimize|hide (what the window does while the game runs), language system|en|fr|ru|de|zh|es|uk|pl (the window's language; system follows the computer's), accent violet|blue|teal|green|amber|red|pink|#rrggbb|DEGREES (a named accent, any colour, or any hue), background PATH (a picture behind Home; "default" shows Horizon's landscape), cache-limit-gib N (managed cache limit in GiB: 10, 25 (default), 50, 100; 0 disables automatic cleanup).
+Show the launcher's settings, or set one (the Settings page): selected-version TAG (use this version for the selected Horizon instance), game-architecture auto|x64|arm64, minecraft-dir PATH, server-dir PATH ("default" resets a folder), install-new-versions on|off, prune-old-versions on|off (delete old versions after an install, keeping the ones instances use and the newest few), keep-versions N (how many of the newest to keep; "default" is 2), opening-animation on|off, proxy http://host:port|socks5://host:port ("default" removes it), while-playing stay|minimize|hide (what the window does while the game runs), language system|en|fr|ru|de|zh|es|uk|pl (the window's language; system follows the computer's), accent violet|blue|teal|green|amber|red|pink|#rrggbb|DEGREES (a named accent, any colour, or any hue), background PATH (a picture behind Home; "default" shows Horizon's landscape), cache-limit-gib N (managed cache limit in GiB: 10, 25 (default), 50, 100; 0 disables automatic cleanup).
 
     horizon-launcher settings [KEY] [VALUE]
 
-- `KEY` (selected-version, minecraft-dir, minecraft-jar, server-dir, install-new-versions, prune-old-versions, keep-versions, opening-animation, game-architecture, proxy, while-playing, language, accent, background, cache-limit-gib)
+- `KEY` (selected-version, minecraft-dir, server-dir, install-new-versions, prune-old-versions, keep-versions, opening-animation, game-architecture, proxy, while-playing, language, accent, background, cache-limit-gib)
 - `VALUE`: The new value (with KEY)
 
 MCP: `settings`.
@@ -292,7 +257,7 @@ Show or set the extra arguments the game starts with (for example --server-threa
 
 - `ARGS`: Omit to show the current arguments
 
-MCP: `game_args`.
+MCP: `game_args`, needs `confirm: true`.
 
 ## `horizon-launcher share-log`
 
@@ -477,7 +442,7 @@ A Java instance's Java: its own Java home or the automatic pick, memory and JVM 
 - `--args`: Extra JVM arguments (one string; "" clears them)
 - `--window`: The game window's size, as 1280x720; "default" goes back to the game's own
 
-MCP: `instance_java`.
+MCP: `instance_java`, needs `confirm: true`.
 
 ## `horizon-launcher instance loader`
 
