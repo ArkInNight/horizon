@@ -71,6 +71,10 @@ struct State {
     anchored: bool,
     /// Required items computed from the loaded schematic.
     materials: Vec<MaterialRow>,
+    /// Last ghost-draw result, for diagnosing engine-side refusals.
+    ghost_error: Option<String>,
+    /// How many ghost cells the last view submitted (diagnostic).
+    ghost_cells: usize,
 }
 
 const SCREEN_ID: &str = "ghost_litematic";
@@ -574,6 +578,20 @@ impl Hooks for Ghost {
         if let Some(note) = &state.auto_note {
             event.draw.text(note, [8.0, 50.0], 0xFF80FF80, true);
         }
+        event.draw.text(
+            &format!("Ghost cells: {}", state.ghost_cells),
+            [8.0, 96.0],
+            0xFF80FF80,
+            true,
+        );
+        if let Some(error) = &state.ghost_error {
+            event.draw.text(
+                &format!("Ghost draw: {error}"),
+                [8.0, 96.0],
+                0xFFFF4040,
+                true,
+            );
+        }
         if state.verify {
             event.draw.text(
                 &format!(
@@ -852,12 +870,15 @@ impl Hooks for Ghost {
         }
         // One batched call per tint, backed by the engine's baked-model ghost route.
         for (color, blocks) in &ghost {
-            let _ = event.draw.draw_ghost_blocks(blocks, *color);
+            if let Err(error) = event.draw.draw_ghost_blocks(blocks, *color) {
+                state.ghost_error = Some(format!("{error:?}"));
+            }
         }
         let _ = event.draw.lines(&outline);
         if state.verify {
             state.verify_tally = tally;
         }
+        state.ghost_cells = ghost_count;
     }
 
     fn client_tick_pre(&self, host: &mut dyn ClientHost, _event: &mut ClientTickPreEvent) {

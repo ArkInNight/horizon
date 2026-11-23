@@ -56,3 +56,25 @@ cp mods/ghost_litematic/fixtures/sample.litematic <data>/horizon-mod-data/ghost_
 # or
 cp mods/ghost_litematic/fixtures/sample.schem <data>/horizon-mod-data/ghost_litematic/build.schem
 ```
+
+## Testing the baked-model renderer (developer build)
+
+`draw_ghost_blocks` is a fork-only engine API. A published Nightly SDK does not have it, so the
+mod must be built as a **native mod** against a prebuilt SDK of this fork:
+
+```sh
+# from the checkout, after committing the engine change
+cargo build --locked -p horizon-game --bin horizon-client
+cargo build --locked -p horizon-client-lib --bin horizon-ctl
+cargo build --locked -p horizon-prepare
+cargo build --locked -p horizon-server
+cargo run --locked -p cargo-horizon-mod -- wasm-std target/debug/horizon-wasm-std.wasm
+./target/debug/horizon-prepare --prepare --root . --server-jar <your 26.3 server.jar>
+./target/debug/horizon-prepare compile-exporters --root .
+# copy .local/exporters/<hash>/{manifest.json,client,server,client.log,server.log} into exporters/
+horizon-launcher developer-install . --program target/debug/horizon-client --trust-unsigned
+RUSTUP_TOOLCHAIN=$(cat tools/ci/rust-version) python3 tools/prebuilt_game.py build /tmp/dev-sdk
+horizon-launcher prepare --version <developer-tag> --minecraft <your .minecraft>
+HORIZON_LAUNCHER_DEVELOPER_SDK=/tmp/dev-sdk \
+  horizon-launcher native-build <mod-folder> --instance <instance> --version <developer-tag> --trust-native-code
+```
