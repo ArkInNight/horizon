@@ -321,6 +321,14 @@ impl WorldDrawContext for GameWorldDrawContext<'_, '_> {
     fn quads(&mut self, quads: &[WorldQuad]) -> Result<(), DrawError> {
         self.game.native_world_draw_quads(&mut *self.surface, quads)
     }
+    fn draw_ghost_blocks(
+        &mut self,
+        blocks: &[(mod_api::BlockState, [f64; 3])],
+        argb: u32,
+    ) -> Result<(), DrawError> {
+        self.game
+            .native_world_draw_ghost_blocks(&mut *self.surface, blocks, argb)
+    }
     fn pipeline_quads(
         &mut self,
         pipeline: RenderPipelineRef,

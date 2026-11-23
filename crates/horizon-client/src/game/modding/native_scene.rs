@@ -53,7 +53,7 @@ pub(super) fn scene_matrix(rect: [f32; 4], view: SceneView) -> Mat4 {
 
 /// The step a model face's direction points: the model's `Direction` lists
 /// its sides in the order the game's does.
-fn step(direction: horizon_assets::model::Direction) -> [i32; 3] {
+pub(super) fn step(direction: horizon_assets::model::Direction) -> [i32; 3] {
     horizon_core::geometry::Direction::ALL[direction as usize].normal()
 }
 

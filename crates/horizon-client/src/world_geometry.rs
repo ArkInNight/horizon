@@ -8,6 +8,16 @@ use mod_api::{
     WorldDepth, WorldDrawUsage, WorldLine, WorldQuad,
 };
 
+/// An atlas-textured world quad for the ghost-block route. `uv` is in absolute atlas space and
+/// `layer` names the array layer, so one batch can mix every block's sprite.
+pub struct TexturedQuad {
+    pub corners: [[f64; 3]; 4],
+    pub uv: [[f32; 2]; 4],
+    pub layer: u32,
+    pub color: u32,
+    pub depth: WorldDepth,
+}
+
 /// Copies of resolved models accepted for one view. Reserved once, never grown in a frame.
 pub(crate) const INSTANCE_CAPACITY: u32 = 16_384;
 
@@ -278,6 +288,37 @@ impl WorldGeometry {
         }
         Ok(())
     }
+    /// Append textured quads (baked block-model faces) or leave the output unchanged.
+    pub fn textured_quads(&mut self, quads: &[TexturedQuad]) -> Result<(), DrawError> {
+        if quads.len() > (CAPACITY - self.usage().quads) as usize {
+            return Err(DrawError::CapacityExceeded);
+        }
+        self.validate_positions(quads.iter().flat_map(|q| q.corners))?;
+        if quads
+            .iter()
+            .flat_map(|q| q.uv)
+            .flatten()
+            .any(|value| !value.is_finite())
+        {
+            return Err(DrawError::NonFinite);
+        }
+        for quad in quads {
+            let color = crate::world_primitives::vertex_color(quad.color, 255);
+            self.quads[usize::from(quad.depth == WorldDepth::ThroughWalls)].extend(
+                (0..4).map(|corner| Vertex {
+                    pos: std::array::from_fn(|i| (quad.corners[corner][i] - self.camera[i]) as f32),
+                    uv: quad.uv[corner],
+                    color,
+                    layer: quad.layer,
+                    light: 0,
+                    normal: [0; 4],
+                    glint_uv: [0.0; 2],
+                }),
+            );
+        }
+        Ok(())
+    }
+
     /// Append an entire batch of quads drawn by the mod pipeline in `slot`, or leave the
     /// output unchanged. The caller has resolved the handle; quads that follow the last ones
     /// with the same pipeline and stage join their run.

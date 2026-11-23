@@ -4,6 +4,21 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-11-23
+
+### Added (engine + mod)
+- New mod API `WorldDrawContext::draw_ghost_blocks`: bakes `(BlockState, position)` lists into
+  translucent atlas-textured world quads using the engine's existing block-model catalog, tint
+  table and alpha-blended world-primitives pipeline. No WGSL changes needed.
+- The mod now renders real baked block models instead of hand-built three-face cubes, including
+  for verifier colours and extra blocks.
+- Config screen has **Files / Materials** tabs; material list compares schematic requirements with
+  the player's inventory and shows a HUD summary.
+- Block-entity labels and wrong-state verifier from 0.10.0 remain.
+
+> The engine part must be present in the running game build; a published Nightly SDK does not have
+> this new API yet, so testing it requires a local developer build of this fork.
+
 ## [0.10.0] — 2026-11-23
 
 ### Added
