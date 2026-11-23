@@ -1,5 +1,9 @@
 # ghost_litematic — litematica-lite PoC
 
+See [COMPARISON.md](COMPARISON.md) for a feature-by-feature comparison with the Java
+Litematica/MaLiLib jars in the project root, including what is rewritten, partial, or not possible
+client-side.
+
 A native Horizon mod that reads a `.litematic` **or** a Sponge `.schem` and draws its blocks as a
 translucent ghost overlay. This is a **proof of concept**: no engine changes, no mixins, only the
 public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_layer_draw`, `data_files`).
