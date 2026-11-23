@@ -24,7 +24,7 @@ public mod API (`render_level_stage`, `input_key`, `register_gui_layers`, `gui_l
   - `[` / `]` — move the current layer down / up
   - `-` / `=` — shrink / grow the range thickness
 - Defaults: `G` toggle, `L` reload, `C` config screen, `V` verifier, `E` easy-place, `B` place next,
-  `T` auto-place, `O/P/H/R` layer modes, `[`/`]` layer, `-`/`=` thickness, `Z/X`, `K/I`, `,`/`.`
+  `T` auto-place, `F` pick block, `O/P/H/R` layer modes, `[`/`]` layer, `-`/`=` thickness, `Z/X`, `K/I`, `,`/`.`
   move the schematic on X/Y/Z. The config screen has `X-/X+/Y-/Y+/Z-/Z+` buttons as well.
 - The first load is anchored near the player, so test schematics no longer appear high in the sky.
 

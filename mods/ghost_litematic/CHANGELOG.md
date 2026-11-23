@@ -4,6 +4,15 @@ All notable changes to this mod are documented here. Dates use the commit date i
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-11-23
+
+### Added
+- Block-entity ghost labels: `TileEntities` / `BlockEntities` positions and ids are parsed from the
+  schematic and projected onto the HUD (pink labels above their blocks).
+- Pick block: `F` (rebindable) selects the hotbar slot holding the item for the nearest ghost block.
+- Verifier distinguishes wrong block from wrong *state* (same block, different properties): the
+  latter is yellow and counted separately in the HUD.
+
 ## [0.9.1] — 2026-11-22
 
 ### Fixed

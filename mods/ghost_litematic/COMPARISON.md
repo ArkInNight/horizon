@@ -34,7 +34,7 @@ Legenda:
 | Simpan/export schematic | ⛔ Bisa | Perlu NBT writer; API sudah punya `Tag`. |
 | Preview ImageData | ⛔ Bisa | Perlu dekode PNG + tampil di GUI. |
 | DataFixer schema upgrade | 🚧 | Engine punya datafix, tapi tidak diekspos ke mod. |
-| Block entity / entity di schematic | 🚧 | Tidak diekspos lewat `data_files()`; butuh parser + server untuk entity. |
+| Block entity di schematic (label) | ◐ | Posisi + id dibaca & ditampilkan di HUD; isi NBT belum dipakai. |
 
 ### Rendering
 
@@ -45,7 +45,7 @@ Legenda:
 | Wireframe region box | ✅ | `WorldDrawContext::lines`. |
 | Layer/slice + follow player | ✅ | All/Single/Range/Follow. |
 | Hide per region | ⛔ Bisa | Perlu state + UI tambahan. |
-| Info HUD (blok, koordinat, material) | ◐ | HUD status sederhana saja. |
+| Info HUD (blok, koordinat, material) | ◐ | HUD status + label block entity; material list belum. |
 | Iris / Sodium / Jade compat | ➖ | Horizon punya pipeline sendiri. |
 
 ### Placement & editing
@@ -54,7 +54,7 @@ Legenda:
 |---|---|---|
 | Easy place (klik ghost) | ✅ | Pilot hotbar + arah + `key.use`. |
 | Auto place | ✅ | 250 ms, bottom-up, berhenti saat habis. |
-| Pick block dari ghost | ⛔ Bisa | `block_item` + hotbar scan sudah tersedia. |
+| Pick block dari ghost | ✅ | `F` memilih slot item untuk ghost terdekat. |
 | Placement restriction / warning | ⛔ Bisa | Perlu validasi item sebelum klik. |
 | Paste schematic | ❌ | Client tidak punya `edit_blocks`; butuh mod server + payload. |
 | Fill / replace / delete operation | ❌ | Sama: butuh server mod. |
@@ -69,7 +69,7 @@ Legenda:
 | Wrong block | ✅ | Merah. |
 | Correct block | ✅ | Hijau. |
 | Extra block (reverse diff) | ✅ | Magenta, dibatasi layer. |
-| Wrong *state* vs wrong *block* | ⛔ Bisa | Bandingkan `block_state_string` lebih granular. |
+| Wrong *state* vs wrong *block* | ✅ | Kuning, dihitung terpisah. |
 | Block entity NBT check | 🚧 | NBT world tidak diekspos ke mod client. |
 
 ### GUI & kontrol

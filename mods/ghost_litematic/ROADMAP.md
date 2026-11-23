@@ -22,12 +22,13 @@ Status rows: **Done**, **Next**, **Later**, **Blocked**. Effort is a rough one-p
 | 0.8.0 | Ghost cube rendering | Three shaded faces per block instead of one flat tile. |
 | 0.8.0 | Move / anchor schematic | `Alt+arrows` and screen buttons; first load anchored near the player. |
 | 0.9.0 | Rebindable controls | 21 registered key mappings in Options > Controls. |
+| 0.10.0 | Block-entity labels, pick block, wrong-state verifier | Read marks from NBT, pick item, split verifier colours. |
 
 ## Next
 
 | Priority | Feature | Effort | Why |
 |---|---|---|---|
-| P1 | Block-entity ghost labels | M | Show chest/sign positions and IDs from `TileEntities` / `BlockEntities`. |
+| P1 | Export schematic | M | Write `.litematic` / `.schem` from an area selection with the existing NBT `Tag` writer. |
 | P1 | Verifier overlay | M | Compare `level.block_state` with the schematic and tint matching / mismatched cells. |
 | P1 | Block-entity ghosts | M | Show chest/sign/beacon positions and labels from `TileEntities` / `BlockEntities`. |
 

@@ -64,7 +64,7 @@ struct State {
     /// Whether to tint the ghost by match against the live world.
     verify: bool,
     /// Last rendered verification tally: correct / wrong block / missing / extra.
-    verify_tally: [usize; 4],
+    verify_tally: [usize; 5],
     /// Translation applied to every region origin so the build can be moved.
     offset: [i32; 3],
     /// Whether the first load has been anchored near the player.
@@ -80,6 +80,7 @@ const MAPPINGS: &[(&str, &str)] = &[
     ("verify", "key.keyboard.v"),
     ("easy", "key.keyboard.e"),
     ("place", "key.keyboard.b"),
+    ("pick", "key.keyboard.f"),
     ("auto", "key.keyboard.t"),
     ("all", "key.keyboard.o"),
     ("single", "key.keyboard.p"),
@@ -224,6 +225,12 @@ struct Schematic {
 }
 
 #[derive(Clone)]
+struct BlockEntityMark {
+    pos: [i32; 3],
+    id: String,
+}
+
+#[derive(Clone)]
 struct PlacedQuad {
     /// The absolute target cell this ghost stands for.
     pos: [i32; 3],
@@ -241,6 +248,8 @@ struct Region {
     quads: Vec<PlacedQuad>,
     /// Absolute positions the schematic says should be non-air (for reverse diff).
     targets: HashSet<[i32; 3]>,
+    /// Block entities (chest, sign, ...) with their position and id, for HUD labels.
+    marks: Vec<BlockEntityMark>,
     outline: Vec<WorldLine>,
 }
 
@@ -371,6 +380,15 @@ impl Ghost {
             "move_yp" => state.offset[1] += 1,
             "move_zn" => state.offset[2] -= 1,
             "move_zp" => state.offset[2] += 1,
+            "pick" => {
+                let schematic = state.schematic.clone();
+                if let Some(schematic) = schematic {
+                    let offset = state.offset;
+                    drop(state);
+                    pick_block(host, &schematic, offset);
+                }
+                return;
+            }
             "place" if state.easy_place => {
                 let schematic = state.schematic.clone();
                 if let Some(schematic) = schematic {
@@ -434,7 +452,7 @@ impl Hooks for Ghost {
         });
     }
 
-    fn gui_layer_draw(&self, _host: &dyn ClientHost, event: &mut GuiLayerDrawEvent<'_>) {
+    fn gui_layer_draw(&self, host: &dyn ClientHost, event: &mut GuiLayerDrawEvent<'_>) {
         if event.layer != "ghost_litematic:status" {
             return;
         }
@@ -492,9 +510,10 @@ impl Hooks for Ghost {
         if state.verify {
             event.draw.text(
                 &format!(
-                    "Verify: {} ok  {} wrong  {} missing  {} extra",
+                    "Verify: {} ok  {} wrong  {} state  {} missing  {} extra",
                     state.verify_tally[0],
                     state.verify_tally[1],
+                    state.verify_tally[4],
                     state.verify_tally[2],
                     state.verify_tally[3]
                 ),
@@ -502,6 +521,34 @@ impl Hooks for Ghost {
                 0xFF80FF80,
                 true,
             );
+        }
+        // Block-entity labels: project each saved position to screen space.
+        if state.visible {
+            if let Some(schematic) = &state.schematic {
+                let [width, height] = event.draw.size();
+                for region in &schematic.regions {
+                    for mark in &region.marks {
+                        let at = [
+                            (mark.pos[0] + state.offset[0]) as f64 + 0.5,
+                            (mark.pos[1] + state.offset[1]) as f64 + 1.2,
+                            (mark.pos[2] + state.offset[2]) as f64 + 0.5,
+                        ];
+                        let Some([x, y, depth]) = host.project(at) else {
+                            continue;
+                        };
+                        if depth <= 0.0 {
+                            continue;
+                        }
+                        let label = mark.id.rsplit(':').next().unwrap_or(&mark.id);
+                        let px = (x + 1.0) / 2.0 * width;
+                        let py = (1.0 - y) / 2.0 * height;
+                        if px < 0.0 || py < 0.0 || px > width || py > height {
+                            continue;
+                        }
+                        event.draw.text(label, [px + 4.0, py], 0xFFFF40C0, true);
+                    }
+                }
+            }
         }
     }
 
@@ -559,7 +606,7 @@ impl Hooks for Ghost {
         let player_y = (camera[1] - 1.6).floor() as i32;
         let mut quads = Vec::with_capacity(MAX_QUADS.min(1024));
         let mut outline = Vec::new();
-        let mut tally = [0usize; 4];
+        let mut tally = [0usize; 5];
         for region in &schematic.regions {
             let origin = world_origin(region, state.offset);
             let center = [
@@ -610,8 +657,13 @@ impl Hooks for Ghost {
                             color = 0x60_40_FF_40; // correct: green
                         }
                         Some(name) if name != "minecraft:air" => {
-                            tally[1] += 1;
-                            color = 0x60_40_40_FF; // wrong block: red
+                            if block_name(name) == block_name(&placed.state) {
+                                tally[4] += 1;
+                                color = 0x60_40_FF_FF; // right block, wrong state: yellow
+                            } else {
+                                tally[1] += 1;
+                                color = 0x60_40_40_FF; // wrong block: red
+                            }
                         }
                         _ => {
                             tally[2] += 1;
@@ -880,6 +932,11 @@ fn distance_squared(a: [f64; 3], b: [f64; 3]) -> f64 {
     (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
 }
 
+/// The block name of a state string, without its `[property=value,...]` part.
+fn block_name(state: &str) -> &str {
+    state.split('[').next().unwrap_or(state)
+}
+
 /// Darken an ARGB colour for side faces, keeping alpha intact.
 fn shade(argb: u32, percent: u32) -> u32 {
     let channel = |shift: u32| ((argb >> shift) & 0xFF) * percent / 100;
@@ -979,6 +1036,44 @@ fn place_next(host: &mut dyn ClientHost, schematic: &Schematic, offset: [i32; 3]
     let (yaw, pitch) = look_at(eye, aim);
     let _ = host.set_local_rotation(yaw, pitch);
     host.click_mapping("key.use").is_ok()
+}
+
+/// Select the hotbar slot holding the item for the ghost block under the crosshair.
+fn pick_block(host: &mut dyn ClientHost, schematic: &Schematic, offset: [i32; 3]) {
+    let Some(player) = host.local_player() else {
+        return;
+    };
+    let Some(eye) = player.entity().eye_position(host) else {
+        return;
+    };
+    let mut best: Option<(&PlacedQuad, f64)> = None;
+    for region in &schematic.regions {
+        for cell in &region.quads {
+            let pos = [
+                cell.pos[0] + offset[0],
+                cell.pos[1] + offset[1],
+                cell.pos[2] + offset[2],
+            ];
+            let distance = distance_squared(
+                [
+                    pos[0] as f64 + 0.5,
+                    pos[1] as f64 + 0.5,
+                    pos[2] as f64 + 0.5,
+                ],
+                eye,
+            );
+            if distance <= 5.0f64.powi(2) && best.as_ref().is_none_or(|(_, d)| distance < *d) {
+                best = Some((cell, distance));
+            }
+        }
+    }
+    let Some((cell, _)) = best else {
+        return;
+    };
+    let wanted = host.block_state_id(&cell.state).map(|state| state.block());
+    if let Some(slot) = find_hotbar_slot(host, player, wanted) {
+        let _ = host.select_hotbar_slot(slot);
+    }
 }
 
 /// Scan literal hotbar slots 0..=8 rather than trusting the client's compacted inventory list.
@@ -1104,6 +1199,27 @@ fn read_named_root(bytes: &[u8]) -> Result<Tag, String> {
     Ok(tag)
 }
 
+fn parse_block_entities(tag: Option<&Tag>) -> Vec<BlockEntityMark> {
+    let Some(Tag::List(entries)) = tag else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let pos = int_array(entry.get("Pos")?).ok()?;
+            let id = entry
+                .get("Id")
+                .or_else(|| entry.get("id"))
+                .and_then(|value| match value {
+                    Tag::String(text) => Some(text.to_string_lossy()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            Some(BlockEntityMark { pos, id })
+        })
+        .collect()
+}
+
 fn parse_region(name: String, tag: &Tag) -> Result<Region, String> {
     if !matches!(tag, Tag::Compound(_)) {
         return Err("region is not a compound".into());
@@ -1192,12 +1308,14 @@ fn parse_region(name: String, tag: &Tag) -> Result<Region, String> {
         ));
     }
     let targets = quads.iter().map(|cell| cell.pos).collect();
+    let marks = parse_block_entities(tag.get("TileEntities"));
     Ok(Region {
         name,
         origin: position,
         size,
         quads,
         targets,
+        marks,
         outline,
     })
 }
@@ -1326,12 +1444,18 @@ fn parse_schem(tag: &Tag) -> Result<Region, String> {
         ));
     }
     let targets = quads.iter().map(|cell| cell.pos).collect();
+    let marks = if version >= 3 {
+        parse_block_entities(blocks.get("BlockEntities"))
+    } else {
+        parse_block_entities(tag.get("TileEntities"))
+    };
     Ok(Region {
         name: "schematic".into(),
         origin,
         size: [width as i32, height as i32, length as i32],
         quads,
         targets,
+        marks,
         outline,
     })
 }
@@ -1462,6 +1586,27 @@ mod tests {
         assert_eq!(region.size, [3, 2, 3]);
         assert_eq!(region.quads.len(), 9, "nine non-air cells");
         assert_eq!(region.outline.len(), 12, "a box has twelve edges");
+    }
+
+    #[test]
+    fn reads_block_entity_marks() {
+        let list = Tag::List(vec![Tag::compound([
+            ("Pos", Tag::IntArray(vec![1, 2, 3])),
+            ("Id", Tag::String("minecraft:chest".into())),
+        ])]);
+        let marks = parse_block_entities(Some(&list));
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].pos, [1, 2, 3]);
+        assert_eq!(marks[0].id, "minecraft:chest");
+    }
+
+    #[test]
+    fn block_name_drops_properties() {
+        assert_eq!(
+            block_name("minecraft:oak_stairs[facing=east]"),
+            "minecraft:oak_stairs"
+        );
+        assert_eq!(block_name("minecraft:stone"), "minecraft:stone");
     }
 
     #[test]
