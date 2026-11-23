@@ -241,25 +241,3 @@ The game keeps the pixels compressed once the GPU has them, and each call uncomp
 the whole store once: ask for every sprite you need in one call, and again only when
 `block_sprites_version` changes. One call returns at most 256 MiB, the default texture
 budget, and returns `Err` without reading anything past that; ask in parts then.
-
-## Ghost blocks (fork-only API)
-
-This fork adds `WorldDrawContext::draw_ghost_blocks(&[(BlockState, [f64; 3])], argb)` for drawing
-a set of block states' baked models as translucent, atlas-textured world quads. Unlike
-`draw_model_instances`, it works for translucent block materials: the engine bakes each state with
-its own atlas layer, applies the block tint table and face shading, culls faces against other
-states in the same list, and submits the result through the existing alpha-blended world-primitives
-batch. The shared per-view quad capacity applies and the call is atomic.
-
-```rust,ignore
-let blocks: Vec<(mod_api::BlockState, [f64; 3])> = cells
-    .iter()
-    .filter_map(|cell| {
-        let state = host.block_state_id(&cell.state)?;
-        Some((state, cell.position))
-    })
-    .collect();
-let _ = draw.draw_ghost_blocks(&blocks, 0x60_FF_FF_FF);
-```
-
-This API is not in upstream Horizon; a mod using it needs a game build from this fork.

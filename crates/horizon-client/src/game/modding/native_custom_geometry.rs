@@ -4,10 +4,10 @@ use super::mods;
 use glam::{DVec3, Mat4, Vec3};
 use horizon_client::mesher::Vertex;
 use horizon_client::screen_effects::{CameraQuads, sampling};
-use horizon_client::world_geometry::{self, ModelBatch, TexturedQuad, WorldGeometry};
+use horizon_client::world_geometry::{self, ModelBatch, WorldGeometry};
 use mod_api::{
     DrawError, InstanceError, ModelInstance, ModelRef, PipelineDrawError, PipelineQuad,
-    RenderLevelStage, RenderPipelineRef, WorldDepth, WorldDrawUsage, WorldLine, WorldQuad,
+    RenderLevelStage, RenderPipelineRef, WorldDrawUsage, WorldLine, WorldQuad,
 };
 
 impl Game<'_> {
@@ -111,67 +111,6 @@ impl Game<'_> {
     ) -> Result<(), DrawError> {
         draw.quads(quads)
     }
-    /// Bake each block state's model into translucent atlas-textured quads and append them
-    /// atomically. Faces against another state in the list are culled, as in a preview scene.
-    pub(super) fn native_world_draw_ghost_blocks(
-        &self,
-        draw: &mut WorldGeometry,
-        blocks: &[(mod_api::BlockState, [f64; 3])],
-        argb: u32,
-    ) -> Result<(), DrawError> {
-        use super::native_scene::{face_shade, shaded, step};
-        let Ok(index) = super::api_values::block_state::current() else {
-            return Ok(());
-        };
-        let grass = self.pack.item_renderer.grass_color(0.5, 1.0) as u32;
-        let tables = &self.pack.context.tables;
-        let mut quads = Vec::new();
-        let occupied: std::collections::HashSet<[i32; 3]> =
-            blocks.iter().map(|(_, pos)| pos.map(|v| v.floor() as i32)).collect();
-        for (state, pos) in blocks {
-            let Ok(engine_state) = index.to_engine(*state) else {
-                continue;
-            };
-            let Ok(models) = self.pack.render.model_catalog.collect_seeded(engine_state, 42) else {
-                continue;
-            };
-            for face in models.iter().flat_map(|(_, model)| &model.faces) {
-                if let Some(cull) = face.quad.cull {
-                    let [dx, dy, dz] = step(cull);
-                    let cell = pos.map(|v| v.floor() as i32);
-                    if occupied.contains(&[cell[0] + dx, cell[1] + dy, cell[2] + dz]) {
-                        continue;
-                    }
-                }
-                let Some(name) = self.pack.layer_names.get(&face.layer) else {
-                    continue;
-                };
-                if !self.gui.atlas.sprites.contains_key(name) {
-                    continue;
-                }
-                let Some(&layer) = self.pack.render.sprite_layers.get(name) else {
-                    continue;
-                };
-                let [nx, ny, nz] = step(face.quad.facing);
-                let mut color = shaded(argb, face_shade(Vec3::new(nx as f32, ny as f32, nz as f32)));
-                if let Some(tint) = tables.default_tint(engine_state, face.quad.tint_index, grass) {
-                    color = horizon_client::hud_layout::multiply(color, horizon_client::mobs::render::abgr(tint));
-                }
-                quads.push(TexturedQuad {
-                    corners: face.quad.positions.map(|p| {
-                        [pos[0] + p[0] as f64, pos[1] + p[1] as f64, pos[2] + p[2] as f64]
-                    }),
-                    // Each sprite owns one atlas array layer, so model UVs are layer-local.
-                    uv: face.quad.uv,
-                    layer,
-                    color,
-                    depth: WorldDepth::Tested,
-                });
-            }
-        }
-        draw.textured_quads(&quads)
-    }
-
     /// Submit quads drawn by a mod pipeline atomically: the handle is checked against the
     /// published pipelines once, then the batch is validated and queued or refused whole.
     pub(super) fn native_world_draw_pipeline_quads(

@@ -14,7 +14,7 @@ use mod_api::{
     ScreenMouseDraggedPreEvent, ScreenMouseScrolledPreEvent, ScreenRenderPostEvent, Tag, Text,
     WorldDepth, WorldLine, WorldQuad,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::io::Read;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,8 +69,6 @@ struct State {
     offset: [i32; 3],
     /// Whether the first load has been anchored near the player.
     anchored: bool,
-    /// Required items computed from the loaded schematic.
-    materials: Vec<MaterialRow>,
 }
 
 const SCREEN_ID: &str = "ghost_litematic";
@@ -102,21 +100,8 @@ const MAPPINGS: &[(&str, &str)] = &[
 const ROW_H: f32 = 14.0;
 const VISIBLE_ROWS: usize = 10;
 const LIST_X: f32 = 20.0;
-const LIST_Y: f32 = 146.0;
+const LIST_Y: f32 = 128.0;
 const LIST_W: f32 = 300.0;
-
-#[derive(Clone, Copy, PartialEq)]
-enum Tab {
-    Files,
-    Materials,
-}
-
-#[derive(Clone)]
-struct MaterialRow {
-    name: String,
-    need: i32,
-    have: i32,
-}
 
 struct ConfigUi {
     widgets: Widgets,
@@ -138,11 +123,7 @@ struct ConfigUi {
     py: WidgetId,
     nz: WidgetId,
     pz: WidgetId,
-    tab_files: WidgetId,
-    tab_materials: WidgetId,
-    tab: Tab,
     rows: Vec<String>,
-    materials: Vec<MaterialRow>,
     offset: usize,
 }
 
@@ -173,8 +154,6 @@ impl ConfigUi {
         let py = small(&mut widgets, 164.0, "Y+");
         let nz = small(&mut widgets, 212.0, "Z-");
         let pz = small(&mut widgets, 260.0, "Z+");
-        let tab_files = button(&mut widgets, 20.0, 118.0, "Files");
-        let tab_materials = button(&mut widgets, 92.0, 118.0, "Materials");
 
         Self {
             widgets,
@@ -196,11 +175,7 @@ impl ConfigUi {
             py,
             nz,
             pz,
-            tab_files,
-            tab_materials,
-            tab: Tab::Files,
             rows: list_schematics(host),
-            materials: Vec::new(),
             offset: 0,
         }
     }
@@ -214,11 +189,7 @@ impl ConfigUi {
             return None;
         }
         let index = self.offset + index as usize;
-        let len = match self.tab {
-            Tab::Files => self.rows.len(),
-            Tab::Materials => self.materials.len(),
-        };
-        (index < len).then_some(index)
+        (index < self.rows.len()).then_some(index)
     }
 }
 
@@ -245,35 +216,6 @@ fn list_schematics(host: &dyn ClientHost) -> Vec<String> {
         }
     }
     out
-}
-
-/// Count the items a schematic needs and compare with the local player's inventory.
-fn compute_materials(host: &dyn ClientHost, schematic: &Schematic) -> Vec<MaterialRow> {
-    let mut needed: BTreeMap<String, i32> = BTreeMap::new();
-    for region in &schematic.regions {
-        for cell in &region.quads {
-            let Some(state) = host.block_state_id(&cell.state) else {
-                continue;
-            };
-            let Some(item) = host.block_item(state.block()) else {
-                continue;
-            };
-            *needed.entry(item.id(host)).or_default() += 1;
-        }
-    }
-    let mut have: BTreeMap<String, i32> = BTreeMap::new();
-    if let Some(player) = host.local_player() {
-        for stack in player.inventory(host).unwrap_or_default() {
-            *have.entry(stack.item().id(host)).or_default() += stack.count() as i32;
-        }
-    }
-    needed
-        .into_iter()
-        .map(|(name, need)| {
-            let have = have.get(&name).copied().unwrap_or(0);
-            MaterialRow { name, need, have }
-        })
-        .collect()
 }
 
 #[derive(Clone)]
@@ -325,12 +267,6 @@ impl Ghost {
         if let Outcome::Pressed(id) = outcome {
             if id == ui.close {
                 self.close_config.store(true, Ordering::Relaxed);
-            } else if id == ui.tab_files {
-                ui.tab = Tab::Files;
-                ui.offset = 0;
-            } else if id == ui.tab_materials {
-                ui.tab = Tab::Materials;
-                ui.offset = 0;
             } else {
                 let mut state = self.state.lock().unwrap();
                 if id == ui.all {
@@ -390,9 +326,6 @@ impl Ghost {
         let Some(ui) = guard.as_ref() else {
             return Flow::Continue;
         };
-        if ui.tab != Tab::Files {
-            return Flow::Continue;
-        }
         let Some(index) = ui.row_at(at) else {
             return Flow::Continue;
         };
@@ -589,23 +522,6 @@ impl Hooks for Ghost {
                 true,
             );
         }
-        if !state.materials.is_empty() {
-            let missing: i32 = state
-                .materials
-                .iter()
-                .map(|row| (row.need - row.have).max(0))
-                .sum();
-            event.draw.text(
-                &format!(
-                    "Materials: {} items, {} missing",
-                    state.materials.len(),
-                    missing
-                ),
-                [8.0, 80.0],
-                0xFF80FF80,
-                true,
-            );
-        }
         // Block-entity labels: project each saved position to screen space.
         if state.visible {
             if let Some(schematic) = &state.schematic {
@@ -672,7 +588,6 @@ impl Hooks for Ghost {
                                 }
                             }
                         }
-                        state.materials = compute_materials(host, &schematic);
                         state.schematic = Some(schematic);
                     }
                     Err(error) => state.error = Some(error),
@@ -689,8 +604,7 @@ impl Hooks for Ghost {
         let camera = event.view.camera;
         // The camera is the player's eye; feet are about 1.6 blocks lower.
         let player_y = (camera[1] - 1.6).floor() as i32;
-        let mut ghost: BTreeMap<u32, Vec<(mod_api::BlockState, [f64; 3])>> = BTreeMap::new();
-        let mut ghost_count = 0usize;
+        let mut quads = Vec::with_capacity(MAX_QUADS.min(1024));
         let mut outline = Vec::new();
         let mut tally = [0usize; 5];
         for region in &schematic.regions {
@@ -729,12 +643,9 @@ impl Hooks for Ghost {
                 {
                     continue;
                 }
-                if ghost_count == MAX_QUADS {
+                if quads.len() == MAX_QUADS {
                     break;
                 }
-                let Some(block_state) = host.block_state_id(&placed.state) else {
-                    continue;
-                };
                 let mut color = placed.quad.color;
                 if state.verify {
                     let world = level
@@ -760,11 +671,43 @@ impl Hooks for Ghost {
                         }
                     }
                 }
-                ghost
-                    .entry(color)
-                    .or_default()
-                    .push((block_state, [pos[0] as f64, pos[1] as f64, pos[2] as f64]));
-                ghost_count += 1;
+                // Three shaded faces read as a block, not a flat tile on the ground.
+                if quads.len() + 3 <= MAX_QUADS {
+                    let wx = pos[0] as f64;
+                    let wy = pos[1] as f64;
+                    let wz = pos[2] as f64;
+                    let inset = 0.49;
+                    quads.push(WorldQuad::new(
+                        [
+                            [wx - inset, wy + 1.01, wz - inset],
+                            [wx - inset, wy + 1.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz - inset],
+                        ],
+                        shade(color, 100),
+                        placed.quad.depth,
+                    ));
+                    quads.push(WorldQuad::new(
+                        [
+                            [wx + inset, wy + 0.01, wz - inset],
+                            [wx + inset, wy + 0.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz - inset],
+                        ],
+                        shade(color, 65),
+                        placed.quad.depth,
+                    ));
+                    quads.push(WorldQuad::new(
+                        [
+                            [wx - inset, wy + 0.01, wz + inset],
+                            [wx + inset, wy + 0.01, wz + inset],
+                            [wx + inset, wy + 1.01, wz + inset],
+                            [wx - inset, wy + 1.01, wz + inset],
+                        ],
+                        shade(color, 50),
+                        placed.quad.depth,
+                    ));
+                }
             }
             for line in &region.outline {
                 if outline.len() < 512 {
@@ -800,10 +743,11 @@ impl Hooks for Ghost {
                 };
                 let y_from = y_from.max(0).min(region.size[1] - 1);
                 let y_to = y_to.max(0).min(region.size[1] - 1);
+                let inset = 0.49;
                 for y in y_from..=y_to {
                     for z in 0..region.size[2] {
                         for x in 0..region.size[0] {
-                            if ghost_count == MAX_QUADS {
+                            if quads.len() == MAX_QUADS {
                                 break;
                             }
                             let pos = [origin[0] + x, origin[1] + y, origin[2] + z];
@@ -827,33 +771,27 @@ impl Hooks for Ghost {
                             if distance > DRAW_DISTANCE.powi(2) {
                                 continue;
                             }
-                            if ghost_count == MAX_QUADS {
-                                break;
-                            }
-                            let Some(name) = level
-                                .block_state(host, pos)
-                                .and_then(|block| host.block_state_string(block))
-                            else {
-                                continue;
-                            };
-                            let Some(block_state) = host.block_state_id(&name) else {
-                                continue;
-                            };
                             tally[3] += 1;
-                            ghost
-                                .entry(0x60_FF_40_FF)
-                                .or_default()
-                                .push((block_state, [pos[0] as f64, pos[1] as f64, pos[2] as f64]));
-                            ghost_count += 1;
+                            let wx = pos[0] as f64;
+                            let wy = pos[1] as f64;
+                            let wz = pos[2] as f64;
+                            quads.push(WorldQuad::new(
+                                [
+                                    [wx - inset, wy + 1.01, wz - inset],
+                                    [wx - inset, wy + 1.01, wz + inset],
+                                    [wx + inset, wy + 1.01, wz + inset],
+                                    [wx + inset, wy + 1.01, wz - inset],
+                                ],
+                                0x60_FF_40_FF, // extra block: magenta
+                                WorldDepth::Tested,
+                            ));
                         }
                     }
                 }
             }
         }
-        // One batched call per tint, backed by the engine's baked-model ghost route.
-        for (color, blocks) in &ghost {
-            let _ = event.draw.draw_ghost_blocks(blocks, *color);
-        }
+        // Batches are atomic: either all of it draws or none does.
+        let _ = event.draw.quads(&quads);
         let _ = event.draw.lines(&outline);
         if state.verify {
             state.verify_tally = tally;
@@ -879,13 +817,8 @@ impl Hooks for Ghost {
         if host.mod_screen() != Some(SCREEN_ID) {
             return;
         }
-        let materials = self.state.lock().unwrap().materials.clone();
         let mut guard = self.config.lock().unwrap();
-        let ui = guard.get_or_insert_with(|| {
-            let mut ui = ConfigUi::new(host);
-            ui.materials = materials;
-            ui
-        });
+        let ui = guard.get_or_insert_with(|| ConfigUi::new(host));
         let draw = &mut *event.draw;
         draw.fill(
             [0.0, 0.0, 340.0, 80.0 + VISIBLE_ROWS as f32 * ROW_H],
@@ -909,38 +842,18 @@ impl Hooks for Ghost {
             true,
         );
         drop(layer);
-        match ui.tab {
-            Tab::Files => {
-                for (slot, name) in ui
-                    .rows
-                    .iter()
-                    .skip(ui.offset)
-                    .take(VISIBLE_ROWS)
-                    .enumerate()
-                {
-                    let y = LIST_Y + slot as f32 * ROW_H;
-                    if ui.row_at(event.screen.mouse) == Some(ui.offset + slot) {
-                        draw.fill([LIST_X, y, LIST_W, ROW_H], 0x40FFFFFF);
-                    }
-                    draw.text(name, [LIST_X + 2.0, y + 2.0], 0xFFFFFFFF, true);
-                }
+        for (slot, name) in ui
+            .rows
+            .iter()
+            .skip(ui.offset)
+            .take(VISIBLE_ROWS)
+            .enumerate()
+        {
+            let y = LIST_Y + slot as f32 * ROW_H;
+            if ui.row_at(event.screen.mouse) == Some(ui.offset + slot) {
+                draw.fill([LIST_X, y, LIST_W, ROW_H], 0x40FFFFFF);
             }
-            Tab::Materials => {
-                for (slot, row) in ui
-                    .materials
-                    .iter()
-                    .skip(ui.offset)
-                    .take(VISIBLE_ROWS)
-                    .enumerate()
-                {
-                    let y = LIST_Y + slot as f32 * ROW_H;
-                    if ui.row_at(event.screen.mouse) == Some(ui.offset + slot) {
-                        draw.fill([LIST_X, y, LIST_W, ROW_H], 0x40FFFFFF);
-                    }
-                    let label = format!("{}  need {}  have {}", row.name, row.need, row.have);
-                    draw.text(&label, [LIST_X + 2.0, y + 2.0], 0xFFFFFFFF, true);
-                }
-            }
+            draw.text(name, [LIST_X + 2.0, y + 2.0], 0xFFFFFFFF, true);
         }
     }
 
@@ -987,14 +900,10 @@ impl Hooks for Ghost {
             return Flow::Continue;
         };
         let before = ui.offset;
-        let len = match ui.tab {
-            Tab::Files => ui.rows.len(),
-            Tab::Materials => ui.materials.len(),
-        };
         ui.offset = ui
             .offset
             .saturating_add_signed((event.scroll[1] as isize).saturating_neg())
-            .min(len.saturating_sub(VISIBLE_ROWS));
+            .min(ui.rows.len().saturating_sub(VISIBLE_ROWS));
         if ui.offset == before {
             Flow::Continue
         } else {
@@ -1026,6 +935,12 @@ fn distance_squared(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// The block name of a state string, without its `[property=value,...]` part.
 fn block_name(state: &str) -> &str {
     state.split('[').next().unwrap_or(state)
+}
+
+/// Darken an ARGB colour for side faces, keeping alpha intact.
+fn shade(argb: u32, percent: u32) -> u32 {
+    let channel = |shift: u32| ((argb >> shift) & 0xFF) * percent / 100;
+    (argb & 0xFF00_0000) | (channel(16) << 16) | (channel(8) << 8) | channel(0)
 }
 
 /// The region's origin after the player's translation.

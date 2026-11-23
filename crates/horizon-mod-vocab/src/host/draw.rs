@@ -465,19 +465,6 @@ pub trait WorldDrawContext {
     fn quads(&mut self, quads: &[WorldQuad]) -> Result<(), DrawError> {
         unimplemented!("WorldDrawContext::world_draw_quads")
     }
-    /// Draw block states' baked models as translucent, atlas-textured ghost quads. Each state is
-    /// drawn at its absolute world position with `argb` tinted onto every face; faces against
-    /// another state in the list are left out. The shared per-view quad cap applies. On `Err`,
-    /// nothing from this call is drawn.
-    fn draw_ghost_blocks(
-        &mut self,
-        blocks: &[(crate::BlockState, [f64; 3])],
-        argb: u32,
-    ) -> Result<(), DrawError> {
-        let _ = (blocks, argb);
-        unimplemented!("WorldDrawContext::draw_ghost_blocks")
-    }
-
     /// Submit world quads drawn by the mod pipeline `pipeline`, atomically: its shader gets each
     /// quad's texture coordinate and colour, and its blend and depth modes apply. The quads
     /// count against the same per-view capacity as [`quads`](Self::quads), and within a stage

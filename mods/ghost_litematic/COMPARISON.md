@@ -40,12 +40,12 @@ Legenda:
 
 | Fitur Java | Status | Keterangan |
 |---|---|---|
-| Ghost blok translucen | ✅* | API engine baru `draw_ghost_blocks` memakai model blok asli + atlas. *Perlu game build dari fork ini. |
-| Model blok vanilla persis | ✅* | Ditambahkan di engine fork; rilis upstream belum memilikinya. |
+| Ghost blok translucen | ◐ | 3 wajah kubus + shading; bukan model blok asli. |
+| Model blok vanilla persis | 🚧 | `draw_model_instances` menolak material translucen; butuh API baru. |
 | Wireframe region box | ✅ | `WorldDrawContext::lines`. |
 | Layer/slice + follow player | ✅ | All/Single/Range/Follow. |
 | Hide per region | ⛔ Bisa | Perlu state + UI tambahan. |
-| Info HUD / material list | ✅ | Tab Materials + ringkasan needs/have di HUD. |
+| Info HUD (blok, koordinat, material) | ◐ | HUD status + label block entity; material list belum. |
 | Iris / Sodium / Jade compat | ➖ | Horizon punya pipeline sendiri. |
 
 ### Placement & editing
@@ -86,7 +86,7 @@ Legenda:
 ## Ringkasan
 
 - **Sudah di-rewrite**: load schematic, ghost + wireframe, layer control, easy-place, auto-place, verifier 4 warna, config screen, keybind rebindable, anchor/pindah posisi.
-- **Parsial**: GUI (tab Files/Materials, belum slider/color picker dan halaman bertingkat).
+- **Parsial**: model ghost (masih quads), GUI (masih satu layar), HUD (masih teks).
 - **Bisa tapi belum dibuat**: export schematic, pick block, per-region hide, verifier wrong-state, GUI lengkap, i18n.
 - **Butuh API/engine baru**: ghost model persis, block-entity NBT, datafixer.
 - **Tidak mungkin client-only**: paste/fill/delete massal, entity spawn, Servux — semua butuh mod server pendamping dengan `edit_blocks` dan custom payload.

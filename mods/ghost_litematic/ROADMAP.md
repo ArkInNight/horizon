@@ -23,7 +23,6 @@ Status rows: **Done**, **Next**, **Later**, **Blocked**. Effort is a rough one-p
 | 0.8.0 | Move / anchor schematic | `Alt+arrows` and screen buttons; first load anchored near the player. |
 | 0.9.0 | Rebindable controls | 21 registered key mappings in Options > Controls. |
 | 0.10.0 | Block-entity labels, pick block, wrong-state verifier | Read marks from NBT, pick item, split verifier colours. |
-| 0.11.0 | Real baked-model ghost rendering + material list | New engine API `draw_ghost_blocks`, Files/Materials tabs. |
 
 ## Next
 
